@@ -250,13 +250,24 @@ export function lastSession() {
   return all.length ? all[all.length - 1] : null;
 }
 
-/** The most recent session that included a given exercise. */
-export function lastSessionWith(exId) {
+/**
+ * The most recent session that included a given exercise.
+ *
+ * When a rotation day is given, sessions from that day win. The same lift can
+ * appear on two days at different rep schemes — Back Squat is 3×5 on day A and
+ * 3×8 on day C — and carrying the heavy five-rep load into the eight-rep day
+ * would suggest a weight that was never intended.
+ */
+export function lastSessionWith(exId, day) {
   const all = allSessions();
-  for (let i = all.length - 1; i >= 0; i--) {
-    if (all[i].exercises.some((e) => e.ex === exId)) return all[i];
-  }
-  return null;
+  const search = (filterDay) => {
+    for (let i = all.length - 1; i >= 0; i--) {
+      if (filterDay && all[i].day !== filterDay) continue;
+      if (all[i].exercises.some((e) => e.ex === exId)) return all[i];
+    }
+    return null;
+  };
+  return (day ? search(day) : null) || search(null);
 }
 
 /**
@@ -279,9 +290,9 @@ export function nextRotationDay() {
  * the prescribed rep range. Progression is a suggestion — the owner confirms
  * or overrides it at the gym.
  */
-export function suggestSets(planEntry) {
+export function suggestSets(planEntry, day) {
   const { ex, sets: setCount, reps, increment_kg } = planEntry;
-  const prev = lastSessionWith(ex);
+  const prev = lastSessionWith(ex, day);
   const prevSets = prev?.exercises.find((e) => e.ex === ex)?.sets || [];
   const target = reps[1];
 

@@ -89,6 +89,7 @@ function dayHTML(letter, day) {
                      <td class="sets">${esc(e.sets)} × ${esc(e.reps[0] === e.reps[1] ? e.reps[0] : `${e.reps[0]}–${e.reps[1]}`)}</td>
                      <td class="inc">${e.increment_kg ? `+${esc(e.increment_kg)} kg` : ''}</td>
                    </tr>
+                   ${e.note ? `<tr class="warmup-row"><td colspan="3">${esc(e.note)}</td></tr>` : ''}
                    ${e.warmup ? `<tr class="warmup-row"><td colspan="3">Warm-up: ${esc(e.warmup)}</td></tr>` : ''}`,
                  )
                  .join('')}

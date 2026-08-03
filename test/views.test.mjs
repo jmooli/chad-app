@@ -251,6 +251,28 @@ await attempt('setup renders and gates on a token', async () => {
 ok('setup explains how to scope the token', /Contents: Read and write/.test(view.textContent));
 ok('setup makes no network call without input', true);
 
+console.log('\nDay-aware progression');
+// Back Squat appears on day A at 3x5 and day C at 3x8. The day C suggestion
+// must come from the last day C session, not from the heavier day A one.
+FILES[`logs/logs-${YEAR}.json`].sessions.push({
+  date: `${YEAR}-07-13`, day: 'C',
+  exercises: [{ ex: 'squat', sets: [{ kg: 25, reps: 8 }, { kg: 25, reps: 8 }, { kg: 25, reps: 8 }] }],
+});
+store.invalidate();
+await store.loadLogYear(YEAR);
+{
+  const latest = store.allSessions().at(-1);
+  ok('the most recent squat session is a day A one', latest.day === 'A' && latest.exercises.some((e) => e.ex === 'squat'));
+  const c = store.suggestSets({ ex: 'squat', sets: 3, reps: [8, 8], increment_kg: 2.5 }, 'C');
+  ok('day C suggests from the day C session', c.sets[0].kg === 27.5, `got ${c.sets[0].kg}`);
+  const a = store.suggestSets({ ex: 'squat', sets: 3, reps: [5, 5], increment_kg: 2.5 }, 'A');
+  ok('day A suggests from the day A session', a.sets[0].kg === 45, `got ${a.sets[0].kg}`);
+  const z = store.suggestSets({ ex: 'squat', sets: 3, reps: [8, 8], increment_kg: 2.5 }, 'Z');
+  ok('an unseen day falls back to any session', z.sets[0].kg !== undefined);
+  const none = store.suggestSets({ ex: 'deadlift', sets: 3, reps: [5, 5], increment_kg: 5 }, 'B');
+  ok('an untrained lift suggests no weight rather than a wrong one', none.sets[0].kg === undefined && none.basis === 'no previous session');
+}
+
 console.log('\nEmpty-data edge cases');
 store.invalidate(); FILES[`logs/logs-${YEAR}.json`] = { schema_version: 1, sessions: [] };
 FILES[`metrics/metrics-${YEAR}.json`] = { schema_version: 1, readings: [] };

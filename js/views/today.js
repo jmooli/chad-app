@@ -42,14 +42,17 @@ function usesSeconds(exId) {
   return sets.length > 0 && sets.every((s) => s.secs !== undefined);
 }
 
-function cardFromPlan(entry) {
-  const s = suggestSets(entry);
+export const repRange = ([min, max]) => (min === max ? `${min}` : `${min}–${max}`);
+
+function cardFromPlan(entry, day) {
+  const s = suggestSets(entry, day);
   const secs = usesSeconds(entry.ex);
   return {
     ex: entry.ex,
-    target: `${entry.sets} × ${entry.reps[0] === entry.reps[1] ? entry.reps[0] : `${entry.reps[0]}–${entry.reps[1]}`}`,
+    target: `${entry.sets} × ${repRange(entry.reps)}`,
     increment: entry.increment_kg,
     warmup: entry.warmup,
+    note: entry.note,
     basis: s.basis,
     prevDate: s.prevDate,
     prevSets: s.prevSets,
@@ -80,7 +83,7 @@ function buildDraft(day) {
     day: day || 'X',
     duration_min: '',
     notes: '',
-    cards: planEntriesFor(day).map(cardFromPlan),
+    cards: planEntriesFor(day).map((entry) => cardFromPlan(entry, day)),
   };
 }
 
@@ -177,6 +180,7 @@ function cardHTML(card, i) {
         ${card.increment ? `<span class="inc">+${esc(card.increment)} kg steps</span>` : ''}
       </p>
       <p class="prev">${esc(prev)}</p>
+      ${card.note ? `<p class="warmup">${esc(card.note)}</p>` : ''}
       ${card.warmup ? `<p class="warmup">Warm-up: ${esc(card.warmup)}</p>` : ''}
       <div class="sets">
         ${card.sets.map((s, j) => setHTML(s, j, card.secs, bodyweight)).join('')}
