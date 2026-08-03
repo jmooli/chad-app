@@ -13,4 +13,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node test/logic.test.mjs
+          cache: npm
+      - run: npm ci
+      # logic.test.mjs also compares the serializer against a checkout of the
+      # private data repo when one is present. It is not here, so that section
+      # skips; the local run is what catches drift.
+      - run: npm test

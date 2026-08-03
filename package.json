@@ -1,0 +1,14 @@
+{
+  "name": "chad-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Static PWA shell for personal training and health tracking. Runtime has zero dependencies; jsdom is used only to run the view tests in Node.",
+  "scripts": {
+    "test": "node test/logic.test.mjs && node test/views.test.mjs",
+    "serve": "node --run-if-present serve || python -m http.server 8000"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
+}

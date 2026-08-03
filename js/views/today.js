@@ -234,20 +234,25 @@ function readForm(root) {
 function wire(root, ctx) {
   const repaint = () => paint(root, ctx);
 
-  root.querySelector('#day').addEventListener('change', (e) => {
-    readForm(root);
+  // Anything the owner types marks the draft dirty. Pre-filled suggestions do
+  // not count — otherwise switching day would never reload the plan's exercises.
+  root.querySelector('#cards').addEventListener('input', () => {
+    draft.dirty = true;
+  });
+
+  root.querySelector('#day').addEventListener('change', async (e) => {
+    const previous = draft.day;
     const day = e.target.value;
-    const keep = draft.cards.some((c) => c.sets.some((s) => s.reps || s.secs || s.kg));
-    if (keep) {
-      draft.day = day;
-      repaint();
-    } else {
-      const date = draft.date;
-      draft = buildDraft(day);
-      draft.date = date;
-      draft.day = day;
-      repaint();
+    readForm(root);
+    if (draft.dirty && !(await confirmAction(`Switch to day ${day}? The sets you have entered will be replaced.`, { okLabel: 'Switch' }))) {
+      draft.day = previous;
+      e.target.value = previous;
+      return;
     }
+    const date = draft.date;
+    draft = buildDraft(day);
+    draft.date = date;
+    repaint();
   });
 
   root.querySelector('#date').addEventListener('change', () => {
