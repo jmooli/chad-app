@@ -71,3 +71,19 @@ python -m http.server 8000     # or any static server
 
 A token is required to see anything beyond the setup screen. Service worker
 registration is skipped outside HTTPS.
+
+## Tests
+
+```sh
+npm install     # jsdom, for the view tests only
+npm test
+```
+
+- `test/logic.test.mjs` — the serializer, UTF-8 base64, validation, progression,
+  aggregation and charts. When a checkout of the private data repo sits beside
+  this one, it also asserts that `format.js` reproduces the committed data files
+  **byte for byte**. That check is the one that keeps app writes from tripping
+  the data repo's CI, so run it locally before changing anything about formatting.
+- `test/views.test.mjs` — every view rendered and interacted with under jsdom,
+  against a fake GitHub, so `store.js` and `github.js` run for real.
+
