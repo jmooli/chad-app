@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="Private training and health log. Nothing is shown without a personal access token.">
+<title>Chad</title>
+
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#101418">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Chad">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+
+<header id="header" class="no-print">
+  <a class="brand" href="#/today">Chad</a>
+  <nav id="nav" hidden></nav>
+  <a class="settings-link" href="#/settings" aria-label="Settings" title="Settings">⚙</a>
+</header>
+
+<main id="view"></main>
+
+<div id="toasts" class="no-print" aria-live="polite"></div>
+
+<script type="module" src="./js/app.js"></script>
+<noscript><p style="padding:2rem">This app needs JavaScript.</p></noscript>
+</body>
+</html>

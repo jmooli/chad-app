@@ -1,0 +1,41 @@
+name: no personal data
+
+# This repository is public and is served by GitHub Pages. It must never
+# contain health data. One careless copy is all it would take, so the check
+# is automated rather than remembered.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reject data directories
+        run: |
+          for dir in logs metrics plan registry; do
+            if [ -d "$dir" ]; then
+              echo "::error::Directory '$dir' belongs in the private data repo, not here."
+              exit 1
+            fi
+          done
+
+      - name: Reject data-shaped files
+        run: |
+          hits=$(git ls-files | grep -E '(logs|metrics)-[0-9]{4}\.json$|^current\.json$' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Data files found: $hits"
+            exit 1
+          fi
+
+      - name: Reject committed tokens
+        run: |
+          hits=$(git grep -InE 'gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}' -- . ':(exclude).github/workflows/no-personal-data.yml' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Possible access token committed: $hits"
+            exit 1
+          fi
