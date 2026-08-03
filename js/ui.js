@@ -48,6 +48,61 @@ export function confirmAction(message, { danger = false, okLabel = 'Confirm' } =
   });
 }
 
+/**
+ * Searchable exercise picker. Opens a sheet with a search box; resolves with
+ * the chosen exercise id, or null if dismissed. Matches on name, equipment
+ * and muscle groups, so "cable" or "hamstrings" work as queries too.
+ */
+export function pickExercise(exercises, { title = 'Add exercise' } = {}) {
+  return new Promise((resolve) => {
+    const all = [...exercises].sort((a, b) => a.name.localeCompare(b.name));
+    const back = document.createElement('div');
+    back.className = 'modal-back picker-back';
+    back.innerHTML = `
+      <div class="modal picker" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+        <input class="picker-search" type="search" placeholder="Search — name, equipment, muscle…" aria-label="Search exercises" autocomplete="off">
+        <ul class="picker-list"></ul>
+      </div>`;
+    const input = back.querySelector('.picker-search');
+    const ul = back.querySelector('.picker-list');
+
+    const paint = () => {
+      const q = input.value.trim().toLowerCase();
+      const hits = all.filter((e) =>
+        !q
+        || e.name.toLowerCase().includes(q)
+        || (e.equipment ?? '').includes(q)
+        || (e.muscles ?? []).some((m) => m.includes(q)));
+      ul.innerHTML = hits.length
+        ? hits.map((e) => `
+          <li><button type="button" class="picker-item" data-id="${esc(e.id)}">
+            <span class="picker-name">${esc(e.name)}</span>
+            <span class="picker-tag">${esc(e.equipment ?? '')}</span>
+          </button></li>`).join('')
+        : '<li class="picker-empty">Nothing matches</li>';
+    };
+    paint();
+
+    const done = (v) => { back.remove(); resolve(v); };
+    input.addEventListener('input', paint);
+    back.addEventListener('click', (e) => {
+      const item = e.target.closest('.picker-item');
+      if (item) done(item.dataset.id);
+      else if (e.target === back) done(null);
+    });
+    back.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') done(null);
+      // Enter picks the top hit — type "lat", hit enter, done.
+      if (e.key === 'Enter' && e.target === input) {
+        const first = ul.querySelector('.picker-item');
+        if (first) done(first.dataset.id);
+      }
+    });
+    document.body.appendChild(back);
+    input.focus();
+  });
+}
+
 /** Event delegation: on(root, 'click', '.btn', handler) */
 export function on(root, event, selector, handler) {
   root.addEventListener(event, (e) => {

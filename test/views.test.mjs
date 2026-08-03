@@ -294,14 +294,39 @@ const resetToday = async () => {
   await new Promise((r) => setTimeout(r, 10));
 };
 
-await attempt('adding a cardio exercise switches the inputs to distance and time', async () => {
+await attempt('the exercise picker opens, searches and dismisses', async () => {
   await today.default(view, ctx);
   await resetToday();
   if (/Edit session/.test(view.textContent)) throw new Error('reset did not leave edit mode');
   setDay('X');
-  const sel = view.querySelector('#add-ex-select');
-  sel.value = 'run';
-  sel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  view.querySelector('#add-ex').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  const back = document.querySelector('.picker-back');
+  if (!back) throw new Error('picker did not open');
+  if (document.querySelectorAll('.picker-item').length !== 4) throw new Error('picker does not list every exercise');
+  const search = back.querySelector('.picker-search');
+  search.value = 'lat'; // matches Pull-up by muscle group, nothing else
+  search.dispatchEvent(new window.Event('input', { bubbles: true }));
+  const hits = [...document.querySelectorAll('.picker-item')];
+  if (hits.length !== 1 || hits[0].dataset.id !== 'pullup') throw new Error(`muscle search failed: ${hits.map((h) => h.dataset.id).join(',')}`);
+  search.value = 'xyzzy';
+  search.dispatchEvent(new window.Event('input', { bubbles: true }));
+  if (!/Nothing matches/.test(back.textContent)) throw new Error('no empty state');
+  back.dispatchEvent(new window.Event('click', { bubbles: true })); // tap outside dismisses
+  await new Promise((r) => setTimeout(r, 10));
+  if (document.querySelector('.picker-back')) throw new Error('picker did not close');
+  if (view.querySelector('.ex-card')) throw new Error('dismissing must not add a card');
+});
+
+const addExercise = async (id) => {
+  view.querySelector('#add-ex').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  document.querySelector(`.picker-item[data-id="${id}"]`).dispatchEvent(new window.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+};
+
+await attempt('adding a cardio exercise switches the inputs to distance and time', async () => {
+  await addExercise('run');
   const card = view.querySelector('.ex-card');
   if (!card) throw new Error('no card added');
   if (!card.querySelector('.km') || !card.querySelector('.min')) throw new Error('no distance/time inputs');

@@ -9,7 +9,7 @@
 
 import { state, loadYears, saveSession, replaceSession, suggestSets, exerciseName, nextRotationDay, todayISO, lastSessionWith, allSessions } from '../store.js';
 import { validateSession } from '../schema.js';
-import { esc, toast, setBusy, on, numOrUndef, intOrUndef, confirmAction } from '../ui.js';
+import { esc, toast, setBusy, on, numOrUndef, intOrUndef, confirmAction, pickExercise } from '../ui.js';
 import { fmtDate } from '../stats.js';
 
 let draft = null;
@@ -151,13 +151,7 @@ function paint(root, ctx) {
       <div id="cards">${draft.cards.map(cardHTML).join('')}</div>
 
       <div class="add-ex">
-        <select id="add-ex-select" aria-label="Add an exercise">
-          <option value="">Add an exercise…</option>
-          ${[...state.exercises.values()]
-            .sort((a, b) => a.name.localeCompare(b.name))
-            .map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`)
-            .join('')}
-        </select>
+        <button type="button" class="btn" id="add-ex">＋ Add exercise</button>
       </div>
 
       <div class="grid-2 session-meta">
@@ -303,8 +297,8 @@ function wire(root, ctx) {
     repaint();
   });
 
-  root.querySelector('#add-ex-select').addEventListener('change', (e) => {
-    const id = e.target.value;
+  root.querySelector('#add-ex').addEventListener('click', async () => {
+    const id = await pickExercise(state.exercises.values());
     if (!id) return;
     readForm(root);
     draft.cards.push(cardAdHoc(id));
