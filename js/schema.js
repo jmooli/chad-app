@@ -30,9 +30,10 @@ export function validateSession(s, { exerciseIds }) {
     }
     ex.sets.forEach((st, j) => {
       const at = `${label} set ${j + 1}`;
-      if (st.reps === undefined && st.secs === undefined) e.push(`${at}: needs reps or seconds.`);
+      if (st.reps === undefined && st.secs === undefined && st.km === undefined) e.push(`${at}: needs reps, time or distance.`);
       if (st.reps !== undefined && (!isInt(st.reps) || st.reps < 0)) e.push(`${at}: reps must be a whole number.`);
-      if (st.secs !== undefined && (!isNum(st.secs) || st.secs <= 0)) e.push(`${at}: seconds must be positive.`);
+      if (st.secs !== undefined && (!isNum(st.secs) || st.secs <= 0)) e.push(`${at}: time must be positive.`);
+      if (st.km !== undefined && (!isNum(st.km) || st.km <= 0)) e.push(`${at}: distance must be positive.`);
       if (st.kg !== undefined && !isNum(st.kg)) e.push(`${at}: weight must be a number.`);
       if (st.rpe !== undefined && (!isNum(st.rpe) || st.rpe < 1 || st.rpe > 10)) e.push(`${at}: RPE must be 1–10.`);
     });

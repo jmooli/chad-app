@@ -94,6 +94,10 @@ function itemHTML(item, i) {
 }
 
 const setSummary = (s) => {
+  if (s.km !== undefined) {
+    const time = s.secs ? ` in ${Math.round(s.secs / 60)} min` : '';
+    return `${s.km} km${time}${s.rpe ? ` @${s.rpe}` : ''}`;
+  }
   const load = typeof s.kg === 'number' ? `${s.kg}kg × ` : '';
   const amount = s.secs !== undefined ? `${s.secs}s` : `${s.reps}`;
   return `${load}${amount}${s.to_failure ? '!' : ''}${s.rpe ? ` @${s.rpe}` : ''}`;

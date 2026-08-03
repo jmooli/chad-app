@@ -28,7 +28,7 @@ globalThis.localStorage = { store: new Map(), getItem(k) { return this.store.get
 const { formatDataFile, orderSession, orderReading } = await import(`file://${APP}/js/format.js`);
 const { encodeBase64, decodeBase64 } = await import(`file://${APP}/js/github.js`);
 const { validateSession, validateReading, warnReading } = await import(`file://${APP}/js/schema.js`);
-const { aggregate, aggregationFor, summarize, partOfDay, estimated1RM, topSetKg, volume } = await import(`file://${APP}/js/stats.js`);
+const { aggregate, aggregationFor, summarize, partOfDay, estimated1RM, topSetKg, volume, distance, duration, pace, fmtPace } = await import(`file://${APP}/js/stats.js`);
 const { chartSVG } = await import(`file://${APP}/js/chart.js`);
 
 console.log('\n1. Serializer matches the data repo byte-for-byte');
@@ -113,7 +113,27 @@ eq('top set', topSetKg({ sets: [{ kg: 40, reps: 8 }, { kg: 50, reps: 3 }] }), 50
 eq('top set of bodyweight is null', topSetKg({ sets: [{ reps: 8 }] }), null);
 eq('epley 1RM', estimated1RM({ sets: [{ kg: 100, reps: 5 }] }), 116.7);
 
-console.log('\n7. Chart output');
+console.log('\n7. Cardio');
+const run5k = { ex: 'run', sets: [{ km: 5, secs: 1920 }] };
+const intervals = { ex: 'run', sets: [{ km: 0.4, secs: 92 }, { km: 0.4, secs: 94 }, { km: 0.4, secs: 96 }] };
+eq('distance of a steady run', distance(run5k), 5);
+eq('distance sums across intervals', distance(intervals), 1.2);
+eq('distance of a lift is null', distance({ ex: 'squat', sets: [{ kg: 40, reps: 8 }] }), null);
+eq('duration in seconds', duration(run5k), 1920);
+eq('pace in minutes per km', Math.round(pace(run5k) * 100) / 100, 6.4);
+eq('pace formatted', fmtPace(pace(run5k)), '6:24 /km');
+eq('pace is null without a time', pace({ sets: [{ km: 5 }] }), null);
+eq('pace rounding does not produce :60', fmtPace(5.999), '6:00 /km');
+eq('cardio contributes no tonnage', volume(run5k), 0);
+eq('cardio has no top set', topSetKg(run5k), null);
+eq('valid cardio set passes', validateSession({ date: '2026-08-04', day: 'X', exercises: [run5k] }, { exerciseIds: new Set(['run']) }).length, 0);
+eq('distance alone is enough', validateSession({ date: '2026-08-04', day: 'X', exercises: [{ ex: 'run', sets: [{ km: 5 }] }] }, { exerciseIds: new Set(['run']) }).length, 0);
+ok('zero distance rejected', validateSession({ date: '2026-08-04', day: 'X', exercises: [{ ex: 'run', sets: [{ km: 0 }] }] }, { exerciseIds: new Set(['run']) }).length > 0);
+ok('empty cardio set still rejected', validateSession({ date: '2026-08-04', day: 'X', exercises: [{ ex: 'run', sets: [{ rpe: 5 }] }] }, { exerciseIds: new Set(['run']) }).length > 0);
+eq('km is ordered next to kg', Object.keys(orderSession({ date: 'd', day: 'X', exercises: [{ ex: 'run', sets: [{ secs: 1920, km: 5 }] }] }).exercises[0].sets[0]), ['km', 'secs']);
+ok('a cardio session serialises to one line', formatDataFile({ schema_version: 2, sessions: [{ date: '2026-08-04', day: 'X', exercises: [intervals] }] }).split('\n').filter((l) => l.includes('"km"')).length === 1);
+
+console.log('\n8. Chart output');
 const svg = chartSVG({ series: [{ name: 'a', color: '#000', points: [{ x: day(1), y: 1 }, { x: day(10), y: 5 }] }], unit: 'kg' });
 ok('emits an svg element', svg.startsWith('<svg') && svg.endsWith('</svg>'));
 ok('draws a path', svg.includes('<path class="series"'));

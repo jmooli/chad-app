@@ -7,7 +7,7 @@
 
 import { state, loadYears, knownYears, allSessions, allReadings, exerciseName } from '../store.js';
 import { chartSVG, legendHTML, SERIES_COLORS } from '../chart.js';
-import { aggregationFor, aggregate, summarize, estimated1RM, topSetKg, volume, fmtNum, fmtDate } from '../stats.js';
+import { aggregationFor, aggregate, summarize, estimated1RM, topSetKg, volume, distance, duration, pace, fmtPace, fmtNum, fmtDate } from '../stats.js';
 import { esc } from '../ui.js';
 
 const RANGES = [
@@ -38,6 +38,7 @@ function paint(root, ctx) {
 
   const lifts = liftOptions();
   if (!view.exercise || !lifts.includes(view.exercise)) view.exercise = lifts[0] || null;
+  const totalKm = sessions.reduce((a, s) => a + s.exercises.reduce((b, e) => b + (distance(e) || 0), 0), 0);
 
   root.innerHTML = `
     <section class="progress">
@@ -51,6 +52,7 @@ function paint(root, ctx) {
       <div class="summary-row">
         <div class="stat"><span class="stat-n">${sessions.length}</span><span class="stat-l">sessions</span></div>
         <div class="stat"><span class="stat-n">${fmtNum(sessions.reduce((a, s) => a + s.exercises.reduce((b, e) => b + volume(e), 0), 0) / 1000, 1)}</span><span class="stat-l">tonnes lifted</span></div>
+        ${totalKm > 0 ? `<div class="stat"><span class="stat-n">${fmtNum(totalKm, 1)}</span><span class="stat-l">km covered</span></div>` : ''}
         <div class="stat"><span class="stat-n">${readings.length}</span><span class="stat-l">readings</span></div>
       </div>
 
@@ -90,6 +92,7 @@ function liftOptions() {
 
 function liftChartHTML(sessions, exId) {
   if (!exId) return '';
+  if (state.exercises.get(exId)?.equipment === 'cardio') return cardioChartHTML(sessions, exId);
   const points = [];
   const e1rm = [];
   for (const s of sessions) {
@@ -120,6 +123,46 @@ function liftChartHTML(sessions, exId) {
     ${chartSVG({ series, unit: 'kg' })}
     ${legendHTML(series)}
     <p class="stat-line">${points.length} session(s) · ${fmtNum(stats.first)} → ${fmtNum(stats.last)} kg · best ${fmtNum(stats.max)} kg</p>`;
+}
+
+/**
+ * Cardio progresses by distance, not load. Pace is reported as a summary
+ * rather than a second line, because minutes-per-kilometre and kilometres do
+ * not belong on one axis.
+ */
+function cardioChartHTML(sessions, exId) {
+  const points = [];
+  const paces = [];
+  let totalKm = 0;
+  let totalSecs = 0;
+
+  for (const s of sessions) {
+    const e = s.exercises.find((x) => x.ex === exId);
+    if (!e) continue;
+    const km = distance(e);
+    if (km === null) continue;
+    points.push({ x: Date.parse(s.date + 'T12:00:00'), y: km });
+    totalKm += km;
+    totalSecs += duration(e);
+    const p = pace(e);
+    if (p !== null) paces.push(p);
+  }
+
+  if (!points.length) return '<p class="muted">No distances recorded for this activity in range.</p>';
+
+  const mode = aggregationFor(points[points.length - 1].x - points[0].x);
+  const series = [{ name: 'Distance (km)', color: SERIES_COLORS[2], points: aggregate(points, mode) }];
+  const best = paces.length ? Math.min(...paces) : null;
+  const avg = paces.length ? paces.reduce((a, b) => a + b, 0) / paces.length : null;
+
+  return `
+    ${aggNote(mode, points.length)}
+    ${chartSVG({ series, unit: 'km', yZero: true })}
+    <p class="stat-line">
+      ${points.length} outing(s) · ${fmtNum(totalKm, 1)} km total
+      ${totalSecs ? ` · ${Math.round(totalSecs / 60)} min` : ''}
+      ${avg !== null ? ` · average ${fmtPace(avg)}, best ${fmtPace(best)}` : ''}
+    </p>`;
 }
 
 /** Bodyweight movements progress by reps, not load. */

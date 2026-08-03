@@ -33,6 +33,7 @@ const FILES = {
     { id: 'squat', name: 'Back Squat', equipment: 'barbell', muscles: ['quads'] },
     { id: 'pullup', name: 'Pull-up', equipment: 'bodyweight', muscles: ['lats'] },
     { id: 'plank', name: 'Plank', equipment: 'bodyweight', muscles: ['core'] },
+    { id: 'run', name: 'Running', equipment: 'cardio', muscles: ['cardiovascular'] },
   ] },
   'registry/metric-types.json': { schema_version: 1, types: [
     { id: 'weight', name: 'Bodyweight', unit: 'kg', shape: 'number', decimals: 1 },
@@ -243,13 +244,118 @@ await attempt('deselecting all metrics does not crash', async () => {
 });
 
 const setup = await import(`${APP}/js/views/setup.js`);
-await attempt('setup renders and gates on a token', async () => {
-  setup.default(view, { onDone: () => {} });
+await attempt('setup renders a token field', async () => {
+  setup.default(view, { onDone: () => { globalThis.__unlocked = true; } });
   if (!view.querySelector('#pat')) throw new Error('no token field');
-  view.querySelector('#setup-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
 });
 ok('setup explains how to scope the token', /Contents: Read and write/.test(view.textContent));
-ok('setup makes no network call without input', true);
+
+await attempt('an empty submit does nothing at all', async () => {
+  const before = putCount;
+  globalThis.__unlocked = false;
+  view.querySelector('#setup-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  if (globalThis.__unlocked) throw new Error('unlocked without a token');
+  if (putCount !== before) throw new Error('wrote something');
+});
+
+await attempt('a valid token against a private repo unlocks', async () => {
+  view.querySelector('#pat').value = 'github_pat_example';
+  view.querySelector('#setup-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  if (!globalThis.__unlocked) throw new Error('did not unlock');
+});
+
+await attempt('a public repo is refused rather than filled with health data', async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (/\/repos\/[^/]+\/[^/]+$/.test(new URL(url).pathname)) return json({ private: false, name: 'oops' });
+    return real(url, opts);
+  };
+  globalThis.__unlocked = false;
+  setup.default(view, { onDone: () => { globalThis.__unlocked = true; } });
+  view.querySelector('#pat').value = 'github_pat_example';
+  view.querySelector('#setup-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  globalThis.fetch = real;
+  if (globalThis.__unlocked) throw new Error('accepted a public repository');
+  if (!/must live in a private repository/.test(view.textContent)) throw new Error('no explanation shown');
+  if (localStorage.getItem('chad.pat')) throw new Error('token was kept after a refused unlock');
+});
+localStorage.setItem('chad.pat', 'github_pat_test');
+
+console.log('\nCardio, logged off-plan');
+
+/** Discards any draft or in-progress edit, confirming the modal. */
+const resetToday = async () => {
+  view.querySelector('#reset').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  document.querySelector('.modal-back [data-act="ok"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+};
+
+await attempt('adding a cardio exercise switches the inputs to distance and time', async () => {
+  await today.default(view, ctx);
+  await resetToday();
+  if (/Edit session/.test(view.textContent)) throw new Error('reset did not leave edit mode');
+  setDay('X');
+  const sel = view.querySelector('#add-ex-select');
+  sel.value = 'run';
+  sel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const card = view.querySelector('.ex-card');
+  if (!card) throw new Error('no card added');
+  if (!card.querySelector('.km') || !card.querySelector('.min')) throw new Error('no distance/time inputs');
+  if (card.querySelector('.reps')) throw new Error('reps input should not be offered for cardio');
+});
+ok('cardio starts as a single leg, not three sets', view.querySelectorAll('.ex-card .set').length === 1);
+ok('the add button is worded for cardio', /Add leg/.test(view.textContent));
+ok('no reps/seconds toggle on cardio', !/Use seconds/.test(view.querySelector('.ex-card').textContent));
+
+await attempt('a run saves as distance plus seconds', async () => {
+  const card = view.querySelector('.ex-card');
+  card.querySelector('.km').value = '5';
+  card.querySelector('.min').value = '32';
+  const before = putCount;
+  view.querySelector('#save').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 50));
+  if (putCount !== before + 1) throw new Error('did not commit');
+  const saved = FILES[`logs/logs-${YEAR}.json`].sessions.find((s) => s.exercises.some((e) => e.ex === 'run'));
+  if (!saved) throw new Error('no session containing a run');
+  const set = saved.exercises[0].sets[0];
+  if (saved.day !== 'X') throw new Error(`expected off-plan day, got ${saved.day}`);
+  if (set.km !== 5) throw new Error(`km wrong: ${JSON.stringify(set)}`);
+  if (set.secs !== 1920) throw new Error(`minutes were not converted to seconds: ${JSON.stringify(set)}`);
+  if ('reps' in set || 'kg' in set) throw new Error(`strength fields leaked in: ${JSON.stringify(set)}`);
+});
+
+await attempt('the log shows the run in human terms', async () => {
+  await log.default(view, ctx);
+  if (!/5 km in 32 min/.test(view.textContent)) throw new Error('run not summarised');
+});
+
+await attempt('progress charts cardio by distance and reports pace', async () => {
+  await progress.default(view, ctx);
+  const sel = view.querySelector('#lift-select');
+  sel.value = 'run';
+  sel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const el = view.querySelector('#lift-chart');
+  const html = el.innerHTML;
+  if (!el.querySelector('path.series')) throw new Error('no line drawn');
+  if (!/5 km total/.test(el.textContent)) throw new Error(`distance total missing: ${el.textContent.trim()}`);
+  if (!/6:24 \/km/.test(el.textContent)) throw new Error(`pace missing: ${el.textContent.trim()}`);
+  if (/NaN/.test(html)) throw new Error('NaN in cardio chart');
+  if (/kg/.test(el.textContent)) throw new Error('cardio reported in kilograms');
+});
+ok('kilometres appear in the summary row', /km covered/.test(view.textContent));
+
+await attempt('editing a cardio session reopens it in cardio mode', async () => {
+  const run = store.allSessions().find((s) => s.exercises.some((e) => e.ex === 'run'));
+  today.loadForEdit(run);
+  await today.default(view, ctx);
+  const card = view.querySelector('.ex-card');
+  if (!card.querySelector('.km')) throw new Error('did not reopen in cardio mode');
+  if (card.querySelector('.min').value !== '32') throw new Error(`minutes not restored: ${card.querySelector('.min').value}`);
+});
 
 console.log('\nDay-aware progression');
 // Back Squat appears on day A at 3x5 and day C at 3x8. The day C suggestion
@@ -261,8 +367,8 @@ FILES[`logs/logs-${YEAR}.json`].sessions.push({
 store.invalidate();
 await store.loadLogYear(YEAR);
 {
-  const latest = store.allSessions().at(-1);
-  ok('the most recent squat session is a day A one', latest.day === 'A' && latest.exercises.some((e) => e.ex === 'squat'));
+  const latestSquat = store.allSessions().filter((s) => s.exercises.some((e) => e.ex === 'squat')).at(-1);
+  ok('the most recent squat session is a day A one', latestSquat.day === 'A', `got day ${latestSquat.day}`);
   const c = store.suggestSets({ ex: 'squat', sets: 3, reps: [8, 8], increment_kg: 2.5 }, 'C');
   ok('day C suggests from the day C session', c.sets[0].kg === 27.5, `got ${c.sets[0].kg}`);
   const a = store.suggestSets({ ex: 'squat', sets: 3, reps: [5, 5], increment_kg: 2.5 }, 'A');

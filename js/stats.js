@@ -66,6 +66,36 @@ export function partOfDay(reading) {
   return { period: h < 12 ? 'morning' : 'evening', inferred: true };
 }
 
+/** Total distance covered in a logged cardio exercise, or null if it is not cardio. */
+export function distance(exercise) {
+  const km = (exercise.sets || []).reduce((sum, s) => sum + (typeof s.km === 'number' ? s.km : 0), 0);
+  return km > 0 ? Math.round(km * 100) / 100 : null;
+}
+
+/** Seconds of work recorded against an exercise. */
+export function duration(exercise) {
+  return (exercise.sets || []).reduce((sum, s) => sum + (typeof s.secs === 'number' ? s.secs : 0), 0);
+}
+
+/** Average pace as minutes per kilometre, or null when it cannot be computed. */
+export function pace(exercise) {
+  const km = distance(exercise);
+  const secs = duration(exercise);
+  if (!km || !secs) return null;
+  return secs / 60 / km;
+}
+
+export const fmtPace = (minPerKm) => {
+  if (minPerKm === null || !Number.isFinite(minPerKm)) return '–';
+  let m = Math.floor(minPerKm);
+  let s = Math.round((minPerKm - m) * 60);
+  if (s === 60) {
+    m += 1;
+    s = 0;
+  }
+  return `${m}:${String(s).padStart(2, '0')} /km`;
+};
+
 /** Volume load for a logged exercise: sum of kg x reps, bodyweight sets excluded. */
 export function volume(exercise) {
   return (exercise.sets || []).reduce((sum, s) => sum + (typeof s.kg === 'number' && s.kg > 0 ? s.kg * (s.reps || 0) : 0), 0);

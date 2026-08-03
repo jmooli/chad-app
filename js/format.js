@@ -57,7 +57,7 @@ export const formatDataFile = (obj) => render(obj, 0) + '\n';
 const ORDER = {
   session: ['date', 'day', 'exercises', 'duration_min', 'notes'],
   sessionExercise: ['ex', 'sets', 'note'],
-  set: ['kg', 'reps', 'secs', 'rpe', 'to_failure'],
+  set: ['kg', 'km', 'reps', 'secs', 'rpe', 'to_failure'],
   reading: ['ts', 'type', 'value', 'src', 'tags', 'note', 'ext_id'],
 };
 

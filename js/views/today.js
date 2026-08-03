@@ -35,18 +35,23 @@ function planEntriesFor(day) {
   return state.plan?.days?.[day]?.exercises || [];
 }
 
-/** Timed exercises are detected from history rather than hardcoded. */
-function usesSeconds(exId) {
+/**
+ * How a set is entered: distance and time for cardio, seconds for timed holds,
+ * otherwise weight and reps. Cardio comes from the registry; timed holds are
+ * inferred from history rather than hardcoded, so a new one needs no code.
+ */
+function modeFor(exId) {
+  if (state.exercises.get(exId)?.equipment === 'cardio') return 'cardio';
   const prev = lastSessionWith(exId);
   const sets = prev?.exercises.find((e) => e.ex === exId)?.sets || [];
-  return sets.length > 0 && sets.every((s) => s.secs !== undefined);
+  return sets.length > 0 && sets.every((s) => s.secs !== undefined && s.km === undefined) ? 'secs' : 'reps';
 }
 
 export const repRange = ([min, max]) => (min === max ? `${min}` : `${min}–${max}`);
 
 function cardFromPlan(entry, day) {
   const s = suggestSets(entry, day);
-  const secs = usesSeconds(entry.ex);
+  const mode = modeFor(entry.ex);
   return {
     ex: entry.ex,
     target: `${entry.sets} × ${repRange(entry.reps)}`,
@@ -56,15 +61,27 @@ function cardFromPlan(entry, day) {
     basis: s.basis,
     prevDate: s.prevDate,
     prevSets: s.prevSets,
-    secs,
-    sets: s.sets.map((x) => (secs ? { secs: undefined } : { kg: x.kg, reps: x.reps })),
+    mode,
+    sets: s.sets.map((x) => (mode === 'reps' ? { kg: x.kg, reps: x.reps } : {})),
   };
 }
 
 function cardAdHoc(exId) {
   const prev = lastSessionWith(exId);
   const prevSets = prev?.exercises.find((e) => e.ex === exId)?.sets || [];
-  const secs = usesSeconds(exId);
+  const mode = modeFor(exId);
+
+  // Cardio repeats the last bout as a starting point — one line, not three.
+  if (mode === 'cardio') {
+    const last = prevSets[prevSets.length - 1] || {};
+    return {
+      ex: exId, target: null, mode,
+      basis: prev ? 'repeat last outing' : 'no previous outing',
+      prevDate: prev?.date || null, prevSets,
+      sets: [{ km: last.km, secs: last.secs }],
+    };
+  }
+
   const kg = prevSets.map((s) => s.kg).filter((k) => typeof k === 'number');
   return {
     ex: exId,
@@ -72,8 +89,9 @@ function cardAdHoc(exId) {
     basis: prev ? 'repeat last load' : 'no previous session',
     prevDate: prev?.date || null,
     prevSets,
-    secs,
-    sets: Array.from({ length: Math.max(1, prevSets.length || 3) }, () => (secs ? {} : { kg: kg.length ? Math.max(...kg) : undefined, reps: prevSets[0]?.reps })),
+    mode,
+    sets: Array.from({ length: Math.max(1, prevSets.length || 3) }, () =>
+      mode === 'secs' ? {} : { kg: kg.length ? Math.max(...kg) : undefined, reps: prevSets[0]?.reps }),
   };
 }
 
@@ -99,7 +117,8 @@ function draftFromSession(s) {
       basis: 'as logged',
       prevDate: null,
       prevSets: [],
-      secs: e.sets.every((x) => x.secs !== undefined),
+      mode: e.sets.some((x) => x.km !== undefined) ? 'cardio'
+        : e.sets.every((x) => x.secs !== undefined) ? 'secs' : 'reps',
       sets: e.sets.map((x) => ({ ...x })),
     })),
   };
@@ -183,21 +202,36 @@ function cardHTML(card, i) {
       ${card.note ? `<p class="warmup">${esc(card.note)}</p>` : ''}
       ${card.warmup ? `<p class="warmup">Warm-up: ${esc(card.warmup)}</p>` : ''}
       <div class="sets">
-        ${card.sets.map((s, j) => setHTML(s, j, card.secs, bodyweight)).join('')}
+        ${card.sets.map((s, j) => setHTML(s, j, card.mode, bodyweight)).join('')}
       </div>
       <div class="card-actions">
-        <button class="btn btn-small" data-act="add-set">Add set</button>
-        <button class="btn btn-small" data-act="toggle-units">${card.secs ? 'Use reps' : 'Use seconds'}</button>
+        <button class="btn btn-small" data-act="add-set">${card.mode === 'cardio' ? 'Add leg' : 'Add set'}</button>
+        ${card.mode === 'cardio' ? '' : `<button class="btn btn-small" data-act="toggle-units">${card.mode === 'secs' ? 'Use reps' : 'Use seconds'}</button>`}
       </div>
     </article>`;
 }
 
-function setHTML(s, j, secs, bodyweight) {
+function setHTML(s, j, mode, bodyweight) {
+  // Cardio is entered in minutes because that is how it is remembered; it is
+  // stored in seconds, like every other duration in the format.
+  if (mode === 'cardio') {
+    return `
+      <div class="set" data-set="${j}">
+        <span class="set-n">${j + 1}</span>
+        <input class="km" inputmode="decimal" placeholder="km" value="${s.km ?? ''}" aria-label="Distance in kilometres, leg ${j + 1}">
+        <input class="min" inputmode="decimal" placeholder="min" value="${s.secs === undefined ? '' : Math.round((s.secs / 60) * 10) / 10}" aria-label="Minutes, leg ${j + 1}">
+        <button class="icon-btn" data-act="more" aria-expanded="false" aria-label="More options, leg ${j + 1}">⋯</button>
+        <div class="set-more" hidden>
+          <label>RPE <input class="rpe" inputmode="decimal" value="${s.rpe ?? ''}" placeholder="1–10"></label>
+          <button class="btn btn-small btn-danger" data-act="del-set">Remove</button>
+        </div>
+      </div>`;
+  }
   return `
     <div class="set" data-set="${j}">
       <span class="set-n">${j + 1}</span>
       <input class="kg" inputmode="decimal" placeholder="${bodyweight ? '+kg' : 'kg'}" value="${s.kg ?? ''}" aria-label="Weight, set ${j + 1}">
-      ${secs
+      ${mode === 'secs'
         ? `<input class="secs" inputmode="numeric" placeholder="sec" value="${s.secs ?? ''}" aria-label="Seconds, set ${j + 1}">`
         : `<input class="reps" inputmode="numeric" placeholder="reps" value="${s.reps ?? ''}" aria-label="Reps, set ${j + 1}">`}
       <button class="icon-btn" data-act="more" aria-expanded="false" aria-label="More options, set ${j + 1}">⋯</button>
@@ -210,6 +244,7 @@ function setHTML(s, j, secs, bodyweight) {
 }
 
 const setSummary = (s) => {
+  if (s.km !== undefined) return `${s.km} km${s.secs ? ` in ${Math.round(s.secs / 60)} min` : ''}`;
   const load = typeof s.kg === 'number' ? `${s.kg}kg × ` : '';
   const amount = s.secs !== undefined ? `${s.secs}s` : `${s.reps}`;
   return `${load}${amount}${s.to_failure ? '!' : ''}`;
@@ -225,13 +260,17 @@ function readForm(root) {
 
   root.querySelectorAll('.ex-card').forEach((cardEl) => {
     const card = draft.cards[Number(cardEl.dataset.card)];
-    card.sets = [...cardEl.querySelectorAll('.set')].map((setEl) => ({
-      kg: numOrUndef(setEl.querySelector('.kg')?.value),
-      reps: intOrUndef(setEl.querySelector('.reps')?.value),
-      secs: numOrUndef(setEl.querySelector('.secs')?.value),
-      rpe: numOrUndef(setEl.querySelector('.rpe')?.value),
-      to_failure: setEl.querySelector('.fail')?.checked || undefined,
-    }));
+    card.sets = [...cardEl.querySelectorAll('.set')].map((setEl) => {
+      const minutes = numOrUndef(setEl.querySelector('.min')?.value);
+      return {
+        kg: numOrUndef(setEl.querySelector('.kg')?.value),
+        km: numOrUndef(setEl.querySelector('.km')?.value),
+        reps: intOrUndef(setEl.querySelector('.reps')?.value),
+        secs: minutes !== undefined ? Math.round(minutes * 60) : numOrUndef(setEl.querySelector('.secs')?.value),
+        rpe: numOrUndef(setEl.querySelector('.rpe')?.value),
+        to_failure: setEl.querySelector('.fail')?.checked || undefined,
+      };
+    });
   });
 }
 
@@ -287,7 +326,11 @@ function wire(root, ctx) {
     readForm(root);
     if (act === 'add-set') {
       const last = card.sets[card.sets.length - 1] || {};
-      card.sets.push(card.secs ? { secs: last.secs } : { kg: last.kg, reps: last.reps });
+      card.sets.push(
+        card.mode === 'cardio' ? { km: last.km, secs: last.secs }
+          : card.mode === 'secs' ? { secs: last.secs }
+            : { kg: last.kg, reps: last.reps },
+      );
       repaint();
     } else if (act === 'del-set') {
       const j = Number(btn.closest('.set').dataset.set);
@@ -298,7 +341,7 @@ function wire(root, ctx) {
       draft.cards.splice(Number(cardEl.dataset.card), 1);
       repaint();
     } else if (act === 'toggle-units') {
-      card.secs = !card.secs;
+      card.mode = card.mode === 'secs' ? 'reps' : 'secs';
       card.sets = card.sets.map(() => ({}));
       repaint();
     }
@@ -346,10 +389,11 @@ function toSession(d) {
     .map((card) => ({
       ex: card.ex,
       sets: card.sets
-        .filter((s) => s.reps !== undefined || s.secs !== undefined)
+        .filter((s) => s.reps !== undefined || s.secs !== undefined || s.km !== undefined)
         .map((s) => {
           const out = {};
           if (s.kg !== undefined) out.kg = s.kg;
+          if (s.km !== undefined) out.km = s.km;
           if (s.reps !== undefined) out.reps = s.reps;
           if (s.secs !== undefined) out.secs = s.secs;
           if (s.rpe !== undefined) out.rpe = s.rpe;

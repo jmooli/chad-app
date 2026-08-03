@@ -98,7 +98,9 @@ export function invalidate() {
 
 /* --- training sessions -------------------------------------------------- */
 
-const EMPTY_LOG = { schema_version: 1, sessions: [] };
+// New shards are created at the current version for their kind — see the
+// version history in the data repo README.
+const EMPTY_LOG = { schema_version: 2, sessions: [] };
 const EMPTY_METRICS = { schema_version: 1, readings: [] };
 
 const insertSorted = (arr, item, keyOf) => {

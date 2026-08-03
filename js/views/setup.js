@@ -52,12 +52,13 @@ export default function renderSetup(root, { onDone }) {
 
   const form = root.querySelector('#setup-form');
   const errEl = root.querySelector('#setup-err');
+  const patEl = root.querySelector('#pat');
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errEl.hidden = true;
 
-    const token = form.pat.value.trim();
+    const token = patEl.value.trim();
     if (!token) return;
 
     setRepo({
