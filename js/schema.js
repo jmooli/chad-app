@@ -49,6 +49,11 @@ export function validateReading(r, { types, sourceIds }) {
     e.push(`Metric type "${r.type}" is not in the registry.`);
   } else if (type.shape === 'number') {
     if (!isNum(r.value)) e.push(`${type.name} must be a number (${type.unit}).`);
+    else {
+      if (type.value_type === 'integer' && !isInt(r.value)) e.push(`${type.name} must be a whole number.`);
+      if (isNum(type.min) && r.value < type.min) e.push(`${type.name} cannot be below ${type.min}.`);
+      if (isNum(type.max) && r.value > type.max) e.push(`${type.name} cannot be above ${type.max}.`);
+    }
   } else if (isObj(type.shape)) {
     if (!isObj(r.value)) {
       e.push(`${type.name} needs values for ${Object.keys(type.shape).join(', ')}.`);
@@ -68,10 +73,14 @@ export function validateReading(r, { types, sourceIds }) {
 }
 
 /** Warnings do not block a save; they nudge toward analysable data. */
-export function warnReading(r) {
+export function warnReading(r, types) {
   const w = [];
   if (r.type === 'bp' && !(r.tags || []).some((t) => t === 'morning' || t === 'evening')) {
     w.push('Blood pressure without a morning/evening tag cannot be split in the clinical report.');
+  }
+  const type = types?.get(r.type);
+  if (type && isNum(type.warn_above) && isNum(r.value) && r.value > type.warn_above) {
+    w.push(`${type.name}: ${r.value} is above the plan ceiling of ${type.warn_above}.`);
   }
   return w;
 }

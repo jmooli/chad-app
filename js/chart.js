@@ -71,8 +71,11 @@ function fmtTime(ms, span) {
 /**
  * series: [{ name, color, points: [{x: epochMs, y: number}], dashed?: bool }]
  * refLines: [{ y, label, color }]
+ * bands: { points: [{x, y}], max, name } — a subordinate secondary series
+ * drawn as translucent bars along the bottom (≤30% of plot height), so e.g.
+ * diet adherence can be read against weight without competing with it.
  */
-export function chartSVG({ series, width = 640, height = 240, unit = '', refLines = [], yZero = false, showPoints = true }) {
+export function chartSVG({ series, width = 640, height = 240, unit = '', refLines = [], yZero = false, showPoints = true, bands = null }) {
   const pts = series.flatMap((s) => s.points);
   if (!pts.length) {
     return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img" aria-label="No data">
@@ -109,6 +112,17 @@ export function chartSVG({ series, width = 640, height = 240, unit = '', refLine
   for (const t of timeTicks(xMin, xMax, 5)) {
     const x = sx(t).toFixed(1);
     parts.push(`<text class="tick" x="${x}" y="${height - 8}" text-anchor="middle">${esc(fmtTime(t, span))}</text>`);
+  }
+
+  if (bands?.points?.length) {
+    const bMax = bands.max || Math.max(...bands.points.map((p) => p.y), 1);
+    const bw = Math.min(14, Math.max(3, (plotW / Math.max(bands.points.length, 1)) * 0.55));
+    for (const p of bands.points) {
+      if (!Number.isFinite(p.y) || p.y < 0) continue;
+      const h = (Math.min(p.y, bMax) / bMax) * plotH * 0.3;
+      const bx = sx(p.x) - bw / 2;
+      parts.push(`<rect class="band" x="${bx.toFixed(1)}" y="${(PAD.top + plotH - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}"><title>${esc(fmtTime(p.x, span))} — ${esc(Math.round(p.y * 10) / 10)} ${esc(bands.name || '')}</title></rect>`);
+    }
   }
 
   for (const r of refLines) {

@@ -35,7 +35,7 @@ console.log('\n1. Serializer matches the data repo byte-for-byte');
 if (existsSync(join(DATA, 'README.md'))) {
   const dataFiles = [
     'registry/exercises.json', 'registry/metric-types.json', 'registry/sources.json',
-    'plan/current.json', 'logs/logs-2026.json', 'metrics/metrics-2026.json',
+    'registry/meal-plans.json', 'plan/current.json', 'logs/logs-2026.json', 'metrics/metrics-2026.json',
   ];
   for (const rel of dataFiles) {
     if (!existsSync(join(DATA, rel))) continue;
@@ -93,6 +93,16 @@ ok('undeclared component rejected', validateReading({ ts: '2026-08-03T07:30:00+0
 ok('unknown source rejected', validateReading({ ts: '2026-08-03T07:30:00+03:00', type: 'weight', value: 82, src: 'fitbit' }, { types, sourceIds }).length > 0);
 ok('untagged BP warns', warnReading({ ts: 't', type: 'bp', value: {}, src: 'manual' }).length === 1);
 
+// Daily-count metrics (bowl-count): integer, bounded, soft ceiling.
+types.set('bowl-count', { id: 'bowl-count', name: 'Quark bowls eaten', unit: 'bowls', shape: 'number', value_type: 'integer', cadence: 'daily', min: 0, max: 6, warn_above: 4 });
+const bowlAt = (value) => ({ ts: '2026-08-04T20:00:00+03:00', type: 'bowl-count', value, src: 'manual' });
+eq('integer count passes', validateReading(bowlAt(3), { types, sourceIds }).length, 0);
+ok('fractional count rejected', validateReading(bowlAt(2.5), { types, sourceIds }).length > 0);
+ok('count above max rejected', validateReading(bowlAt(7), { types, sourceIds }).length > 0);
+ok('negative count rejected', validateReading(bowlAt(-1), { types, sourceIds }).length > 0);
+eq('five bowls is valid but warns', [validateReading(bowlAt(5), { types, sourceIds }).length, warnReading(bowlAt(5), types).length], [0, 1]);
+eq('four bowls does not warn', warnReading(bowlAt(4), types).length, 0);
+
 console.log('\n6. Statistics and aggregation');
 eq('raw under 3 months', aggregationFor(60 * 86400000), 'raw');
 eq('weekly under ~2 years', aggregationFor(300 * 86400000), 'weekly');
@@ -142,6 +152,12 @@ ok('empty series is handled', chartSVG({ series: [] }).includes('No data'));
 ok('single point does not divide by zero', !/NaN/.test(chartSVG({ series: [{ name: 'a', color: '#000', points: [{ x: day(1), y: 5 }] }] })));
 ok('flat series does not divide by zero', !/NaN/.test(chartSVG({ series: [{ name: 'a', color: '#000', points: [{ x: day(1), y: 5 }, { x: day(2), y: 5 }] }] })));
 ok('reference lines render', chartSVG({ series: [{ name: 'a', color: '#000', points: [{ x: day(1), y: 120 }] }], refLines: [{ y: 140, label: '140' }] }).includes('refline'));
+const banded = chartSVG({
+  series: [{ name: 'a', color: '#000', points: [{ x: day(1), y: 84 }, { x: day(10), y: 83 }] }],
+  bands: { points: [{ x: day(2), y: 3 }, { x: day(3), y: 0 }, { x: day(4), y: 6 }], max: 6, name: 'bowls/day' },
+});
+ok('adherence bands render as rects', (banded.match(/class="band"/g) || []).length === 3);
+ok('no NaN with bands', !/NaN/.test(banded));
 
 console.log('\n8. Service worker precache covers every module');
 const sw = readFileSync(join(APP, 'sw.js'), 'utf8');

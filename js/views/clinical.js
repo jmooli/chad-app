@@ -6,7 +6,7 @@
  * the recipient landing anywhere else.
  */
 
-import { state, loadYears, knownYears, allReadings, todayISO } from '../store.js';
+import { state, loadYears, knownYears, allReadings, todayISO, dailyCountTypes, mealPlanById } from '../store.js';
 import { chartSVG, legendHTML, SERIES_COLORS } from '../chart.js';
 import { summarize, partOfDay, fmtNum, fmtDate, fmtDateTime } from '../stats.js';
 import { esc, download, csvCell, toast } from '../ui.js';
@@ -79,6 +79,7 @@ function paint(root, ctx) {
         <header class="report-head" id="report-head">
           <h2>Health readings</h2>
           <p>${esc(fmtDate(view.from))} – ${esc(fmtDate(view.to))}</p>
+          ${mealSummaryLines()}
           <p class="unlock-hint no-print" hidden>Press and hold this heading to unlock</p>
         </header>
         ${view.types.size
@@ -89,6 +90,38 @@ function paint(root, ctx) {
     </section>`;
 
   wire(root, ctx);
+}
+
+/**
+ * One line per meal plan that overlaps the reporting period: what the diet
+ * phase was, and how consistently it was followed — so the doctor can read
+ * lipids and BP against it without a food diary.
+ */
+function mealSummaryLines() {
+  const lines = [];
+  for (const t of dailyCountTypes()) {
+    const p = mealPlanById(t.plan_ref);
+    if (!p) continue;
+    const from = view.from > p.started ? view.from : p.started;
+    const to = p.status === 'ended' && p.planned_end && p.planned_end < view.to ? p.planned_end : view.to;
+    if (from > to) continue;
+
+    const days = Math.round((Date.parse(to + 'T12:00:00') - Date.parse(from + 'T12:00:00')) / 86400000) + 1;
+    const byDay = new Map();
+    for (const r of allReadings()) {
+      if (r.type !== t.id) continue;
+      const d = r.ts.slice(0, 10);
+      if (d >= from && d <= to) byDay.set(d, r.value);
+    }
+    const logged = byDay.size;
+    const mean = logged ? [...byDay.values()].reduce((a, b) => a + b, 0) / logged : null;
+    const pct = days ? Math.round((logged / days) * 100) : 0;
+
+    lines.push(`<p class="report-plan">${esc(p.name)} — ${esc(p.status)} ${esc(fmtDate(from))} – ${esc(fmtDate(to))} · ${
+      mean === null ? 'no days logged' : `mean ${esc(fmtNum(mean, 1))} ${esc(t.unit)}/day`
+    } · ${esc(pct)}% of days logged (${esc(logged)}/${esc(days)})</p>`);
+  }
+  return lines.join('');
 }
 
 function blockHTML(typeId, readings) {

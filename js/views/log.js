@@ -7,7 +7,8 @@
 
 import {
   state, loadYears, knownYears, allSessions, allReadings, saveReading, deleteReading,
-  deleteSession, knownTags, exerciseName, isoWithOffset,
+  deleteSession, knownTags, exerciseName, isoWithOffset, todayISO,
+  dailyCountTypes, dailyReadingFor, saveDailyCount, mealPlanById,
 } from '../store.js';
 import { validateReading, warnReading } from '../schema.js';
 import { esc, toast, setBusy, on, numOrUndef, confirmAction } from '../ui.js';
@@ -29,6 +30,8 @@ function paint(root, ctx) {
     <section class="log">
       <h1>Log</h1>
 
+      ${countersHTML()}
+
       <details class="add-reading" ${items.length ? '' : 'open'}>
         <summary>Add a health reading</summary>
         <div id="reading-form"></div>
@@ -39,7 +42,57 @@ function paint(root, ctx) {
     </section>`;
 
   paintReadingForm(root, ctx);
+  wireCounters(root, ctx);
   wireTimeline(root, ctx);
+}
+
+/* --- daily counters (bowl-count) ----------------------------------------- *
+ * One tap logs the day's count — this is the adherence signal for the whole
+ * meal plan, so it has to be as low-friction as a weight entry. The plan
+ * ceiling (0–warn_above) is prominent; values above it stay one tap away but
+ * are styled as the exception they are.
+ */
+
+function countersHTML() {
+  const counters = dailyCountTypes().filter((t) => (mealPlanById(t.plan_ref)?.status ?? 'active') === 'active');
+  if (!counters.length) return '';
+  return counters.map((t) => {
+    const current = dailyReadingFor(t.id, todayISO())?.value;
+    const max = t.max ?? 6;
+    const ceiling = t.warn_above ?? max;
+    const buttons = [];
+    for (let v = t.min ?? 0; v <= max; v++) {
+      buttons.push(`<button class="counter-btn ${v === current ? 'on' : ''} ${v > ceiling ? 'over' : ''}" data-count-type="${esc(t.id)}" data-v="${v}">${v}</button>`);
+    }
+    return `
+      <div class="counter-card">
+        <div class="counter-head">
+          <strong>${esc(t.name)}</strong>
+          <span class="muted">today${current !== undefined ? ` · ${esc(current)} logged` : ''}</span>
+        </div>
+        <div class="counter-row" role="group" aria-label="${esc(t.name)} today">${buttons.join('')}</div>
+      </div>`;
+  }).join('');
+}
+
+function wireCounters(root, ctx) {
+  on(root, 'click', '.counter-btn', async (e, btn) => {
+    const typeId = btn.dataset.countType;
+    const value = Number(btn.dataset.v);
+    const type = state.types.get(typeId);
+    if (dailyReadingFor(typeId, todayISO())?.value === value) return;
+    for (const w of warnReading({ type: typeId, value }, state.types)) toast(w, 'warn', 5000);
+    setBusy(true);
+    try {
+      await saveDailyCount(typeId, value);
+      toast(`${type?.name || typeId}: ${value} logged for today.`);
+      paint(root, ctx);
+    } catch (err) {
+      ctx.handleError(err);
+    } finally {
+      setBusy(false);
+    }
+  });
 }
 
 /* --- timeline ----------------------------------------------------------- */
@@ -284,7 +337,7 @@ function paintReadingForm(root, ctx) {
       toast(errors[0], 'error', 5000);
       return;
     }
-    for (const w of warnReading(reading)) toast(w, 'warn', 5000);
+    for (const w of warnReading(reading, state.types)) toast(w, 'warn', 5000);
 
     setBusy(true);
     try {

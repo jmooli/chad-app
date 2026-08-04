@@ -5,7 +5,7 @@
  * means, so a decade of data stays a readable line rather than a smear.
  */
 
-import { state, loadYears, knownYears, allSessions, allReadings, exerciseName } from '../store.js';
+import { state, loadYears, knownYears, allSessions, allReadings, exerciseName, dailyCountTypes } from '../store.js';
 import { chartSVG, legendHTML, SERIES_COLORS } from '../chart.js';
 import { aggregationFor, aggregate, summarize, estimated1RM, topSetKg, volume, distance, duration, pace, fmtPace, fmtNum, fmtDate } from '../stats.js';
 import { esc } from '../ui.js';
@@ -208,12 +208,26 @@ function metricSections(readings) {
       if (!series.length) return '';
       const stats = summarize(series[0].points.map((p) => p.y));
 
+      // Diet adherence as quiet background bars behind weight and BP — the
+      // question these charts answer is what bowl adherence did to outcomes.
+      let bands = null;
+      if (typeId === 'weight' || typeId === 'bp') {
+        for (const ct of dailyCountTypes()) {
+          const crs = byType.get(ct.id);
+          if (!crs?.length) continue;
+          const points = aggregate(crs.map((r) => ({ x: Date.parse(r.ts), y: r.value })).filter((p) => Number.isFinite(p.y)), mode);
+          if (points.length) bands = { points, max: ct.max ?? 6, name: `${ct.unit}/day` };
+          break;
+        }
+      }
+
       return `
         <article class="metric-block">
           <h3>${esc(t.name)} <span class="unit">${esc(t.unit)}</span></h3>
           ${aggNote(mode, rs.length)}
-          ${chartSVG({ series, unit: t.unit, refLines: refLinesFor(typeId) })}
+          ${chartSVG({ series, unit: t.unit, refLines: refLinesFor(typeId), bands })}
           ${legendHTML(series)}
+          ${bands ? `<p class="agg-note">Grey bars: ${esc(bands.name)} (0–${esc(bands.max)})${mode === 'raw' ? '' : ', averaged like the line'}</p>` : ''}
           <p class="stat-line">${rs.length} reading(s) · latest ${esc(fmtNum(stats.last, t.decimals ?? 1))} ${esc(t.unit)} · mean ${esc(fmtNum(stats.mean, t.decimals ?? 1))}</p>
         </article>`;
     })

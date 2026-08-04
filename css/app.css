@@ -233,6 +233,29 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .chip-static { cursor: default; }
 .chip-input { width: 7rem; min-height: 36px; border-radius: 999px; }
+/* --- daily counters (bowl stepper) --------------------------------------- */
+
+.counter-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: .7rem .9rem; margin-bottom: .8rem; box-shadow: var(--shadow); }
+.counter-head { display: flex; align-items: baseline; gap: .5rem; margin-bottom: .55rem; }
+.counter-head .muted { margin-left: auto; }
+.counter-row { display: flex; gap: .4rem; }
+.counter-btn {
+  flex: 1; min-height: var(--tap); border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--text); border-radius: var(--radius); font-size: 1.05rem; font-weight: 600; cursor: pointer;
+  font-variant-numeric: tabular-nums; transition: background .15s, color .15s;
+}
+.counter-btn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.counter-btn.over { flex: .6; color: var(--muted); font-weight: 400; }
+.counter-btn.over.on { background: var(--warn); border-color: var(--warn); color: #fff; }
+
+/* --- meal plan ------------------------------------------------------------ */
+
+.meal-plan { margin-top: .8rem; display: grid; gap: .8rem; }
+.meal-plan .day-card h3 .unit { color: var(--muted); font-weight: 400; font-size: .85rem; }
+.meal-add { color: var(--muted); font-size: .87rem; margin: .5rem 0 0; }
+.meal-steps { margin: 0; padding-left: 1.2rem; font-size: .92rem; display: grid; gap: .45rem; }
+.report-plan { color: var(--muted); font-size: .95rem; }
+
 .add-reading { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: .7rem .9rem; }
 .add-reading summary { cursor: pointer; font-weight: 600; }
 .add-reading > div { margin-top: .8rem; }
@@ -242,6 +265,7 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 
 .chart { display: block; background: transparent; overflow: visible; }
 .chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .band { fill: var(--muted); opacity: .28; }
 .chart .axis { stroke: var(--muted); stroke-width: 1; opacity: .6; }
 .chart .tick { fill: var(--muted); font-size: 11px; }
 .chart .series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }

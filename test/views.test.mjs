@@ -27,6 +27,9 @@ const attempt = async (n, fn) => { try { await fn(); ok(n, true); } catch (e) { 
 /* --- a fake GitHub, so store.js and github.js run for real --------------- */
 
 const YEAR = new Date().getFullYear();
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const daysAgo = (n) => iso(new Date(Date.now() - n * 86400000));
+const TODAY = iso(new Date());
 
 const FILES = {
   'registry/exercises.json': { schema_version: 1, exercises: [
@@ -35,10 +38,28 @@ const FILES = {
     { id: 'plank', name: 'Plank', equipment: 'bodyweight', muscles: ['core'] },
     { id: 'run', name: 'Running', equipment: 'cardio', muscles: ['cardiovascular'] },
   ] },
-  'registry/metric-types.json': { schema_version: 1, types: [
+  'registry/metric-types.json': { schema_version: 2, types: [
     { id: 'weight', name: 'Bodyweight', unit: 'kg', shape: 'number', decimals: 1 },
     { id: 'bp', name: 'Blood pressure', unit: 'mmHg', shape: { sys: 'number', dia: 'number', pulse: 'number' }, primary_series: ['sys', 'dia'], decimals: 0 },
+    { id: 'bowl-count', name: 'Quark bowls eaten', unit: 'bowls', shape: 'number', decimals: 0, value_type: 'integer', cadence: 'daily', min: 0, max: 6, warn_above: 4, plan_ref: 'bowl-plan-v1' },
   ] },
+  'registry/meal-plans.json': { schema_version: 1, plans: [{
+    id: 'bowl-plan-v1', name: 'Quark Bowl Plan', status: 'active', started: daysAgo(20), review_date: null, planned_end: null,
+    notes: 'Time-boxed test plan.',
+    recipe: {
+      per_bowl: { kcal: 575, protein_g: 30, ingredients: [
+        { name: 'Rasvaton rahka (fat-free quark)', amount: '250 g', kcal: 160 },
+        { name: 'Banana', amount: '1', kcal: 90 },
+      ] },
+      bowl_1_additions: ['Daily seed dose (chia + flax, pre-portioned)', 'Creatine'],
+      bowls_2_4_additions: ['Psyllium 3 g per bowl (never in Bowl 1 — medication gap)'],
+      day_totals_4_bowls: { kcal: 2300, protein_g: 125, fibre_g: 35, potassium_mg: 3500 },
+      target_strict_day_kcal: [2200, 2300],
+      maintenance_kcal: [2600, 2700],
+    },
+    protocol: [{ title: 'Wake, fasted', text: 'BP + statin medication with water.' }, { title: 'Gap', text: 'Nothing eaten for 2 hours after medication.' }],
+    guardrails: [{ title: 'Seed ceiling', text: 'Chia and flax in Bowl 1 only.' }, { title: 'Meds gap', text: 'Medication on waking → nothing for 2 hours → Bowl 1.' }],
+  }] },
   'registry/sources.json': { schema_version: 1, sources: [
     { id: 'manual', name: 'Manual entry', kind: 'human' },
     { id: 'lab', name: 'Clinical laboratory', kind: 'human' },
@@ -433,6 +454,86 @@ await attempt('progress with nothing logged', async () => {
 await attempt('clinical with nothing recorded', async () => {
   await clinical.default(view, ctx);
   if (!/No readings recorded yet/.test(view.textContent)) throw new Error('missing empty state');
+});
+
+console.log('\nBowl plan');
+
+const click = (el) => el.dispatchEvent(new window.Event('click', { bubbles: true }));
+const bowlToday = () => FILES[`metrics/metrics-${YEAR}.json`].readings.filter((r) => r.type === 'bowl-count' && r.ts.slice(0, 10) === TODAY);
+
+store.invalidate();
+FILES[`metrics/metrics-${YEAR}.json`] = { schema_version: 1, readings: [
+  { ts: `${daysAgo(6)}T07:30:00+03:00`, type: 'weight', value: 84.0, src: 'manual', tags: ['morning'] },
+  { ts: `${daysAgo(6)}T20:00:00+03:00`, type: 'bowl-count', value: 3, src: 'manual' },
+  { ts: `${daysAgo(4)}T20:00:00+03:00`, type: 'bowl-count', value: 2, src: 'manual' },
+  { ts: `${daysAgo(2)}T07:30:00+03:00`, type: 'weight', value: 83.6, src: 'manual', tags: ['morning'] },
+  { ts: `${daysAgo(2)}T20:00:00+03:00`, type: 'bowl-count', value: 4, src: 'manual' },
+] };
+
+await attempt('the bowls stepper renders 0–6 with 5 and 6 subdued', async () => {
+  await log.default(view, ctx);
+  const btns = view.querySelectorAll('.counter-btn');
+  if (btns.length !== 7) throw new Error(`expected 7 buttons, got ${btns.length}`);
+  if (view.querySelectorAll('.counter-btn.over').length !== 2) throw new Error('5 and 6 should be styled as the exception');
+});
+
+await attempt('one tap logs today\'s bowls as a single commit', async () => {
+  const before = putCount;
+  click(view.querySelector('.counter-btn[data-v="3"]'));
+  await new Promise((r) => setTimeout(r, 50));
+  if (putCount !== before + 1) throw new Error(`expected one PUT, got ${putCount - before}`);
+  const t = bowlToday();
+  if (t.length !== 1 || t[0].value !== 3 || t[0].src !== 'manual') throw new Error(JSON.stringify(t));
+});
+ok('the tapped value is highlighted', view.querySelector('.counter-btn[data-v="3"]').classList.contains('on'));
+
+await attempt('re-tapping replaces today\'s count instead of appending', async () => {
+  click(view.querySelector('.counter-btn[data-v="2"]'));
+  await new Promise((r) => setTimeout(r, 50));
+  const t = bowlToday();
+  if (t.length !== 1 || t[0].value !== 2) throw new Error(JSON.stringify(t));
+});
+
+await attempt('tapping the already-logged value makes no commit', async () => {
+  const before = putCount;
+  click(view.querySelector('.counter-btn[data-v="2"]'));
+  await new Promise((r) => setTimeout(r, 30));
+  if (putCount !== before) throw new Error('wrote a pointless commit');
+});
+
+await attempt('a five-bowl day saves, with a ceiling warning', async () => {
+  click(view.querySelector('.counter-btn[data-v="5"]'));
+  await new Promise((r) => setTimeout(r, 50));
+  const t = bowlToday();
+  if (t.length !== 1 || t[0].value !== 5) throw new Error(JSON.stringify(t));
+  if (!/ceiling/.test(document.getElementById('toasts').textContent)) throw new Error('no warning toast');
+});
+
+await attempt('plan view renders the meal plan from registry data', async () => {
+  await plan.default(view, ctx);
+  for (const s of ['Quark Bowl Plan', 'Rasvaton rahka', 'Daily protocol', 'Guardrails', 'Seed ceiling', 'Bowl 1 only']) {
+    if (!view.textContent.includes(s)) throw new Error(`missing "${s}"`);
+  }
+});
+ok('shows days elapsed on an active plan', /day 21/.test(view.textContent), view.querySelector('.meal-plan .meta')?.textContent);
+ok('unset review/end dates prompt after 14 days', /meal-plans\.json/.test(view.textContent));
+
+await attempt('progress overlays bowls behind the weight chart', async () => {
+  await progress.default(view, ctx);
+  const block = [...view.querySelectorAll('.metric-block')].find((b) => /Bodyweight/.test(b.textContent));
+  if (!block) throw new Error('no weight block');
+  if (!block.querySelector('rect.band')) throw new Error('no adherence bars behind weight');
+  if (!/Grey bars: bowls\/day/.test(block.textContent)) throw new Error('no caption');
+  if (/NaN/.test(block.innerHTML)) throw new Error('NaN in banded chart');
+});
+
+await attempt('clinical report carries the adherence summary line', async () => {
+  await clinical.default(view, ctx);
+  const line = view.querySelector('.report-plan');
+  if (!line) throw new Error('no plan summary line');
+  if (!/Quark Bowl Plan/.test(line.textContent)) throw new Error(line.textContent);
+  if (!/mean 3\.5 bowls\/day/.test(line.textContent)) throw new Error(`mean wrong: ${line.textContent}`);
+  if (!/\(4\/21\)/.test(line.textContent)) throw new Error(`coverage wrong: ${line.textContent}`);
 });
 
 console.log(`\n${fail ? 'FAILED' : 'PASSED'} — ${pass} passed, ${fail} failed.`);

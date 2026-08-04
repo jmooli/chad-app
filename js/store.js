@@ -28,6 +28,7 @@ export const state = {
   types: new Map(),
   sources: new Map(),
   plan: null,
+  mealPlans: [],
   logYears: new Map(),    // year -> sessions[]
   metricYears: new Map(),  // year -> readings[]
   loaded: false,
@@ -41,11 +42,12 @@ export const sourceIds = () => new Set(state.sources.keys());
 /* --- loading ------------------------------------------------------------ */
 
 export async function loadRegistries() {
-  const [ex, mt, src, plan] = await Promise.all([
+  const [ex, mt, src, plan, meals] = await Promise.all([
     getFile('registry/exercises.json'),
     getFile('registry/metric-types.json'),
     getFile('registry/sources.json'),
     getFile('plan/current.json'),
+    getFile('registry/meal-plans.json'),
   ]);
   if (!ex || !mt || !src) throw new Error('Registry files are missing from the data repo.');
 
@@ -53,8 +55,15 @@ export async function loadRegistries() {
   state.types = new Map(mt.json.types.map((t) => [t.id, t]));
   state.sources = new Map(src.json.sources.map((s) => [s.id, s]));
   state.plan = plan ? plan.json : null;
+  state.mealPlans = meals ? meals.json.plans || [] : [];
   state.loaded = true;
 }
+
+export const mealPlanById = (id) => state.mealPlans.find((p) => p.id === id) || null;
+export const activeMealPlans = () => state.mealPlans.filter((p) => p.status === 'active');
+
+/** Metric types logged as one whole number per day (bowl-count). */
+export const dailyCountTypes = () => [...state.types.values()].filter((t) => t.cadence === 'daily' && t.value_type === 'integer');
 
 export async function loadLogYear(year) {
   if (state.logYears.has(year)) return state.logYears.get(year);
@@ -200,6 +209,36 @@ export async function saveReading(reading) {
       return file;
     },
     `metric: ${readingLabel(record)}`,
+    { fallback: EMPTY_METRICS },
+  );
+  if (res.content) state.metricYears.set(year, res.content.readings);
+  return res;
+}
+
+/** The manually entered reading of a type on a calendar day, or null. */
+export function dailyReadingFor(typeId, date) {
+  const hits = allReadings().filter((r) => r.type === typeId && r.src === 'manual' && r.ts.slice(0, 10) === date);
+  return hits.length ? hits[hits.length - 1] : null;
+}
+
+/**
+ * Daily-cadence metrics hold one value per calendar day, so tapping the
+ * stepper again replaces today's reading rather than appending a second one —
+ * it is a correction, not a new data point, and it is one commit either way.
+ */
+export async function saveDailyCount(typeId, value) {
+  const ts = isoWithOffset();
+  const date = ts.slice(0, 10);
+  const year = Number(date.slice(0, 4));
+  const record = orderReading({ ts, type: typeId, value, src: 'manual' });
+  const res = await updateJson(
+    metricPath(year),
+    (file) => {
+      file.readings = file.readings.filter((r) => !(r.type === typeId && r.src === 'manual' && r.ts.slice(0, 10) === date));
+      insertSorted(file.readings, record, (r) => r.ts);
+      return file;
+    },
+    `metric: ${typeId} ${value}`,
     { fallback: EMPTY_METRICS },
   );
   if (res.content) state.metricYears.set(year, res.content.readings);
