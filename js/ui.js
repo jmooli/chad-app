@@ -103,12 +103,27 @@ export function pickExercise(exercises, { title = 'Add exercise' } = {}) {
   });
 }
 
-/** Event delegation: on(root, 'click', '.btn', handler) */
+/**
+ * Event delegation: on(root, 'click', '.btn', handler)
+ *
+ * Idempotent per (root, event, selector): re-wiring after a repaint replaces
+ * the previous listener instead of stacking a duplicate. Views repaint onto
+ * long-lived containers, and stacked listeners made a tag-chip tap toggle
+ * twice (visibly un-selectable) and delete actions fire against stale data.
+ */
+const delegated = new WeakMap();
 export function on(root, event, selector, handler) {
-  root.addEventListener(event, (e) => {
+  let byKey = delegated.get(root);
+  if (!byKey) delegated.set(root, (byKey = new Map()));
+  const key = `${event} ${selector}`;
+  const prev = byKey.get(key);
+  if (prev) root.removeEventListener(event, prev);
+  const listener = (e) => {
     const match = e.target.closest(selector);
     if (match && root.contains(match)) handler(e, match);
-  });
+  };
+  byKey.set(key, listener);
+  root.addEventListener(event, listener);
 }
 
 export const numOrUndef = (v) => {

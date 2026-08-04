@@ -198,6 +198,15 @@ await attempt('switching metric type rebuilds the value inputs', async () => {
   if (view.querySelectorAll('[data-comp]').length !== 3) throw new Error('composite inputs missing');
 });
 ok('tag suggestions come from existing data', /fasted/.test(view.textContent));
+await attempt('tag chips still toggle after the form repaints', async () => {
+  // The type switch above repainted the form onto the same container; with
+  // stacked delegated listeners a tap fired twice and the chip never selected.
+  const chip = view.querySelector('[data-tag="morning"]');
+  chip.dispatchEvent(new window.Event('click', { bubbles: true }));
+  if (!chip.classList.contains('on')) throw new Error('chip did not select');
+  chip.dispatchEvent(new window.Event('click', { bubbles: true }));
+  if (chip.classList.contains('on')) throw new Error('chip did not deselect');
+});
 
 const progress = await import(`${APP}/js/views/progress.js`);
 await attempt('progress renders', async () => {

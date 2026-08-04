@@ -248,8 +248,23 @@ function paintReadingForm(root, ctx) {
       toast('Pick a date and time.', 'error');
       return;
     }
+    // The When input has minute resolution, so back-to-back readings of the
+    // same type can collide on the (ts, type, src) natural key the validator
+    // enforces. On collision, borrow the wall clock's seconds to stay unique.
+    const src = host.querySelector('#r-src').value;
+    let ts = isoWithOffset(new Date(when));
+    const clashes = (t) => allReadings().some((r) => r.ts === t && r.type === type.id && r.src === src);
+    if (clashes(ts)) {
+      const d = new Date(when);
+      d.setSeconds(new Date().getSeconds() || 30);
+      ts = isoWithOffset(d);
+      if (clashes(ts)) {
+        toast('A reading of this type already exists at that exact time — adjust the time.', 'error', 5000);
+        return;
+      }
+    }
     const reading = {
-      ts: isoWithOffset(new Date(when)),
+      ts,
       type: type.id,
       value: type.shape === 'number'
         ? numOrUndef(host.querySelector('#r-value').value)
@@ -258,7 +273,7 @@ function paintReadingForm(root, ctx) {
               .map((el) => [el.dataset.comp, numOrUndef(el.value)])
               .filter(([, v]) => v !== undefined),
           ),
-      src: host.querySelector('#r-src').value,
+      src,
     };
     if (form.tags.size) reading.tags = [...form.tags];
     const note = host.querySelector('#r-note').value.trim();
