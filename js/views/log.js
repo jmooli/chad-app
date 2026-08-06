@@ -114,6 +114,7 @@ function itemHTML(item, i) {
             <strong>Day ${esc(s.day)}</strong>
             ${s.duration_min ? `<span class="muted">${esc(s.duration_min)} min</span>` : ''}
             <span class="tl-actions">
+              ${s.src ? `<span class="badge badge-muted">${esc(s.src)}</span>` : ''}
               <button class="link" data-act="edit-session" data-i="${i}">Edit</button>
               <button class="link danger" data-act="del-session" data-i="${i}">Delete</button>
             </span>

@@ -71,6 +71,7 @@ eq('session keys ordered', Object.keys(orderSession({ notes: 'x', exercises: [],
 eq('set keys ordered', Object.keys(orderSession({ date: 'd', day: 'A', exercises: [{ sets: [{ reps: 5, kg: 20, to_failure: true }], ex: 'squat' }] }).exercises[0].sets[0]), ['kg', 'reps', 'to_failure']);
 eq('reading keys ordered', Object.keys(orderReading({ src: 'manual', value: 1, ts: 't', type: 'weight' })), ['ts', 'type', 'value', 'src']);
 ok('undefined fields are dropped', !('duration_min' in orderSession({ date: 'd', day: 'A', exercises: [], duration_min: undefined })));
+eq('session provenance keys ordered last', Object.keys(orderSession({ ext_id: 'act:1', src: 'google-health', date: 'd', day: 'X', exercises: [] })), ['date', 'day', 'exercises', 'src', 'ext_id']);
 
 console.log('\n5. Client-side validation');
 const exerciseIds = new Set(['squat', 'pullup']);
@@ -79,6 +80,13 @@ ok('unknown exercise rejected', validateSession({ date: '2026-08-01', day: 'A', 
 ok('set without reps or secs rejected', validateSession({ date: '2026-08-01', day: 'A', exercises: [{ ex: 'squat', sets: [{ kg: 40 }] }] }, { exerciseIds }).length > 0);
 ok('bad date rejected', validateSession({ date: '1.8.2026', day: 'A', exercises: [{ ex: 'squat', sets: [{ reps: 1 }] }] }, { exerciseIds }).length > 0);
 ok('rpe out of range rejected', validateSession({ date: '2026-08-01', day: 'A', exercises: [{ ex: 'squat', sets: [{ reps: 5, rpe: 12 }] }] }, { exerciseIds }).length > 0);
+
+// Session provenance (logs schema_version 3).
+const sessionSrcIds = new Set(['manual', 'google-health']);
+eq('imported session passes', validateSession({ date: '2026-08-01', day: 'X', exercises: [{ ex: 'squat', sets: [{ reps: 1 }] }], src: 'google-health', ext_id: 'act:1' }, { exerciseIds, sourceIds: sessionSrcIds }).length, 0);
+ok('unknown session source rejected', validateSession({ date: '2026-08-01', day: 'X', exercises: [{ ex: 'squat', sets: [{ reps: 1 }] }], src: 'fitbit' }, { exerciseIds, sourceIds: sessionSrcIds }).length > 0);
+ok('ext_id without src rejected', validateSession({ date: '2026-08-01', day: 'X', exercises: [{ ex: 'squat', sets: [{ reps: 1 }] }], ext_id: 'act:1' }, { exerciseIds, sourceIds: sessionSrcIds }).length > 0);
+eq('src tolerated without a sourceIds context', validateSession({ date: '2026-08-01', day: 'X', exercises: [{ ex: 'squat', sets: [{ reps: 1 }] }], src: 'google-health' }, { exerciseIds }).length, 0);
 
 const types = new Map([
   ['weight', { id: 'weight', name: 'Bodyweight', unit: 'kg', shape: 'number' }],

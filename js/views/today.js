@@ -352,7 +352,7 @@ function wire(root, ctx) {
   root.querySelector('#save').addEventListener('click', async () => {
     readForm(root);
     const session = toSession(draft);
-    const errors = validateSession(session, { exerciseIds: new Set(state.exercises.keys()) });
+    const errors = validateSession(session, { exerciseIds: new Set(state.exercises.keys()), sourceIds: new Set(state.sources.keys()) });
     if (errors.length) {
       toast(errors[0], 'error', 5000);
       return;

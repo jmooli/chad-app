@@ -12,11 +12,14 @@ const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isInt = (v) => Number.isInteger(v);
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-export function validateSession(s, { exerciseIds }) {
+export function validateSession(s, { exerciseIds, sourceIds }) {
   const e = [];
   if (!DATE_RE.test(s.date || '')) e.push('Date must be YYYY-MM-DD.');
   if (!s.day) e.push('Rotation day is required.');
   if (s.duration_min !== undefined && (!isInt(s.duration_min) || s.duration_min <= 0)) e.push('Duration must be a whole number of minutes.');
+  if (s.src !== undefined && (typeof s.src !== 'string' || (sourceIds && !sourceIds.has(s.src)))) e.push(`Source "${s.src}" is not in the registry.`);
+  if (s.ext_id !== undefined && (typeof s.ext_id !== 'string' || !s.ext_id)) e.push('External id must be a non-empty string.');
+  if (s.ext_id !== undefined && s.src === undefined) e.push('An external id needs a source.');
   if (!Array.isArray(s.exercises) || !s.exercises.length) {
     e.push('Log at least one exercise with at least one set.');
     return e;

@@ -55,7 +55,7 @@ export const formatDataFile = (obj) => render(obj, 0) + '\n';
  * a one-field diff rather than a reordered line.
  */
 const ORDER = {
-  session: ['date', 'day', 'exercises', 'duration_min', 'notes'],
+  session: ['date', 'day', 'exercises', 'duration_min', 'notes', 'src', 'ext_id'],
   sessionExercise: ['ex', 'sets', 'note'],
   set: ['kg', 'km', 'reps', 'secs', 'rpe', 'to_failure'],
   reading: ['ts', 'type', 'value', 'src', 'tags', 'note', 'ext_id'],
