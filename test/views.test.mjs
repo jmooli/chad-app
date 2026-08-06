@@ -63,6 +63,7 @@ const FILES = {
   'registry/sources.json': { schema_version: 1, sources: [
     { id: 'manual', name: 'Manual entry', kind: 'human' },
     { id: 'lab', name: 'Clinical laboratory', kind: 'human' },
+    { id: 'google-health', name: 'Google Health API', kind: 'import' },
   ] },
   'plan/current.json': {
     schema_version: 1, name: 'Comeback Full-Body A/B/C', effective_from: '2026-07-13', effective_to: null,
@@ -74,7 +75,7 @@ const FILES = {
       C: { _TODO: 'not entered', exercises: [] },
     },
   },
-  [`logs/logs-${YEAR}.json`]: { schema_version: 1, sessions: [
+  [`logs/logs-${YEAR}.json`]: { schema_version: 3, sessions: [
     { date: `${YEAR}-07-12`, day: 'A', exercises: [{ ex: 'squat', sets: [{ kg: 40, reps: 8 }, { kg: 40, reps: 8 }, { kg: 40, reps: 8 }] }, { ex: 'pullup', sets: [{ reps: 6 }, { reps: 5 }] }], duration_min: 55, notes: 'First session back' },
     { date: `${YEAR}-07-15`, day: 'B', exercises: [{ ex: 'plank', sets: [{ secs: 45 }, { secs: 40 }] }], duration_min: 40 },
   ] },
@@ -186,6 +187,70 @@ await attempt('editing an existing session loads it', async () => {
   if (view.querySelector('.kg').value !== '40') throw new Error('did not load logged weights');
 });
 
+console.log('\nOne running session per day');
+
+/** Discards any draft or in-progress edit, confirming the modal. */
+const resetToday = async () => {
+  view.querySelector('#reset').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  document.querySelector('.modal-back [data-act="ok"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+};
+
+await attempt("re-opening Today continues today's logged session", async () => {
+  await resetToday(); // discards the explicit edit above; today already has a manual session
+  if (!/Continuing the session logged for/.test(view.textContent)) throw new Error('did not auto-load the day');
+  if (/Edit session/.test(view.textContent)) throw new Error('continuing must not read as an edit');
+  if (view.querySelector('.kg').value !== '42.5') throw new Error('did not load the logged sets');
+  if (view.querySelector('#day').value !== 'A') throw new Error('did not keep the logged day');
+});
+
+await attempt('day switch while continuing keeps the logged exercises', async () => {
+  const before = view.querySelectorAll('.ex-card').length;
+  setDay('X');
+  await new Promise((r) => setTimeout(r, 10));
+  if (view.querySelectorAll('.ex-card').length !== before) throw new Error('logged exercises were replaced');
+  setDay('A');
+  await new Promise((r) => setTimeout(r, 10));
+});
+
+await attempt('saving while continuing updates the day in place', async () => {
+  view.querySelector('[data-act="add-set"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  const sets = view.querySelectorAll('.ex-card .set');
+  sets[sets.length - 1].querySelector('.kg').value = '42.5';
+  sets[sets.length - 1].querySelector('.reps').value = '8';
+  const before = putCount;
+  view.querySelector('#save').dispatchEvent(new window.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 50));
+  if (putCount !== before + 1) throw new Error(`expected one commit, got ${putCount - before}`);
+  const todays = FILES[`logs/logs-${YEAR}.json`].sessions.filter((s) => s.date === TODAY);
+  if (todays.length !== 1) throw new Error(`expected one session for today, got ${todays.length}`);
+  if (todays[0].exercises[0].sets.length !== 4) throw new Error('the added set was not saved');
+});
+
+await attempt('an imported activity stays separate from the manual session', async () => {
+  FILES[`logs/logs-${YEAR}.json`].sessions.push({
+    date: TODAY, day: 'X', exercises: [{ ex: 'run', sets: [{ km: 5.2, secs: 3100 }] }], src: 'google-health', ext_id: 'act:123',
+  });
+  store.invalidate();
+  await today.default(view, ctx);
+  if (!/Continuing the session logged for/.test(view.textContent)) throw new Error('manual session not auto-loaded');
+  if (!/1 imported activity \(google-health\)/.test(view.textContent)) throw new Error('imported-activity note missing');
+  if ([...view.querySelectorAll('.ex-card h2')].some((h) => /Running/.test(h.textContent))) throw new Error('imported activity leaked into the manual draft');
+  if (store.nextRotationDay() !== 'B') throw new Error(`imported day-X session derailed the rotation: got ${store.nextRotationDay()}`);
+});
+
+const log = await import(`${APP}/js/views/log.js`);
+await attempt('the log badges the imported session', async () => {
+  await log.default(view, ctx);
+  if (![...view.querySelectorAll('.tl-session .badge')].some((b) => b.textContent === 'google-health')) throw new Error('no source badge on the imported session');
+});
+
+// Drop the imported fixture again so the later sections see the counts they expect.
+FILES[`logs/logs-${YEAR}.json`].sessions = FILES[`logs/logs-${YEAR}.json`].sessions.filter((s) => s.src === undefined);
+store.invalidate();
+
 const plan = await import(`${APP}/js/views/plan.js`);
 
 
@@ -196,7 +261,6 @@ await attempt('plan renders', async () => {
   if (!/3 × 8/.test(view.textContent)) throw new Error('set scheme missing');
 });
 
-const log = await import(`${APP}/js/views/log.js`);
 await attempt('log renders', async () => {
   await log.default(view, ctx);
   if (view.querySelectorAll('.tl').length !== 7) throw new Error(`expected 7 timeline items, got ${view.querySelectorAll('.tl').length}`);
@@ -316,13 +380,15 @@ localStorage.setItem('chad.pat', 'github_pat_test');
 
 console.log('\nCardio, logged off-plan');
 
-/** Discards any draft or in-progress edit, confirming the modal. */
-const resetToday = async () => {
-  view.querySelector('#reset').dispatchEvent(new window.Event('click', { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 10));
-  document.querySelector('.modal-back [data-act="ok"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 10));
-};
+// Today continues the day's manual session instead of stacking a second one,
+// so move the gym session saved above off today's date — the off-plan cardio
+// flow below must start from a fresh draft.
+{
+  const shard = FILES[`logs/logs-${YEAR}.json`];
+  shard.sessions.find((s) => s.date === TODAY).date = `${YEAR}-07-20`;
+  shard.sessions.sort((a, b) => a.date.localeCompare(b.date));
+  store.invalidate();
+}
 
 await attempt('the exercise picker opens, searches and dismisses', async () => {
   await today.default(view, ctx);

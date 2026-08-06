@@ -156,6 +156,11 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
   padding: .6rem .8rem; border-radius: 6px; font-size: .92rem; margin: .8rem 0;
 }
 .notice.small { font-size: .85rem; }
+.notice.notice-muted {
+  background: var(--surface-2);
+  border-left-color: var(--muted);
+  color: var(--muted); font-size: .85rem;
+}
 .err { color: var(--danger); margin-top: .8rem; }
 
 /* --- setup -------------------------------------------------------------- */

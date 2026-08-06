@@ -14,10 +14,12 @@ import { fmtDate } from '../stats.js';
 
 let draft = null;
 let editing = null; // the original record, when editing an existing session
+let autoLoaded = false; // editing because Today picked up the day's session itself
 
 /** Called from the Log view: open an existing session for correction. */
 export function loadForEdit(session) {
   editing = session;
+  autoLoaded = false;
   draft = draftFromSession(session);
 }
 
@@ -25,8 +27,34 @@ export default async function renderToday(root, { navigate, handleError }) {
   const year = new Date().getFullYear();
   await loadYears(year - 1, year);
 
-  if (!draft) draft = buildDraft(nextRotationDay());
+  if (!draft) initDraftForDate(todayISO());
   paint(root, { navigate, handleError });
+}
+
+/* --- one manual session per day ----------------------------------------- */
+
+// Absent src means manual. Imported sessions (src: "google-health", …) are
+// never folded into the day's manual session — they live as their own records.
+const manualSessionsFor = (date) => allSessions().filter((s) => s.date === date && s.src === undefined);
+const importedSessionsFor = (date) => allSessions().filter((s) => s.date === date && s.src !== undefined);
+
+/**
+ * The day is one running submission: if a manual session is already logged for
+ * the date, continue it (saving updates in place); otherwise start a fresh
+ * draft from the plan.
+ */
+function initDraftForDate(date) {
+  const logged = manualSessionsFor(date);
+  if (logged.length) {
+    editing = logged[logged.length - 1];
+    autoLoaded = true;
+    draft = draftFromSession(editing);
+  } else {
+    editing = null;
+    autoLoaded = false;
+    draft = buildDraft(nextRotationDay());
+    draft.date = date;
+  }
 }
 
 /* --- draft construction ------------------------------------------------- */
@@ -129,12 +157,12 @@ function draftFromSession(s) {
 function paint(root, ctx) {
   const letters = state.plan ? Object.keys(state.plan.days) : [];
   const planned = planEntriesFor(draft.day);
-  const existing = allSessions().filter((s) => s.date === draft.date);
+  const imported = importedSessionsFor(draft.date);
 
   root.innerHTML = `
     <section class="today">
       <div class="head-row">
-        <h1>${editing ? 'Edit session' : 'Today'}</h1>
+        <h1>${editing && !autoLoaded ? 'Edit session' : 'Today'}</h1>
         <div class="head-controls">
           <input type="date" id="date" value="${esc(draft.date)}" aria-label="Session date">
           <select id="day" aria-label="Rotation day">
@@ -144,8 +172,9 @@ function paint(root, ctx) {
         </div>
       </div>
 
-      ${editing ? `<p class="notice">Correcting the session logged on ${esc(fmtDate(editing.date))}. Saving replaces it in one commit.</p>` : ''}
-      ${!editing && existing.length ? `<p class="notice">A session is already logged for ${esc(fmtDate(draft.date))} (day ${esc(existing[0].day)}). Saving adds a second one.</p>` : ''}
+      ${editing && !autoLoaded ? `<p class="notice">Correcting the session logged on ${esc(fmtDate(editing.date))}. Saving replaces it in one commit.</p>` : ''}
+      ${autoLoaded ? `<p class="notice">Continuing the session logged for ${esc(fmtDate(draft.date))} (day ${esc(editing.day)}). Add to it freely — saving updates it in one commit.</p>` : ''}
+      ${imported.length ? `<p class="notice notice-muted">${imported.length} imported ${imported.length === 1 ? 'activity' : 'activities'} (${esc(imported[0].src)}) ${imported.length === 1 ? 'is' : 'are'} also logged for this day — see <a href="#/log">the log</a>.</p>` : ''}
       ${!planned.length && draft.day !== 'X' ? `<p class="notice">The plan has no exercises for day ${esc(draft.day)} yet. Add them below, or fill in <a href="#/plan">the plan</a>.</p>` : ''}
 
       <div id="cards">${draft.cards.map(cardHTML).join('')}</div>
@@ -166,7 +195,7 @@ function paint(root, ctx) {
       </div>
 
       <div class="actions">
-        <button class="btn" id="reset">${editing ? 'Cancel edit' : 'Reset'}</button>
+        <button class="btn" id="reset">${autoLoaded ? 'Reload' : editing ? 'Cancel edit' : 'Reset'}</button>
         <button class="btn btn-primary" id="save">${editing ? 'Save changes' : 'Save session'}</button>
       </div>
     </section>`;
@@ -281,6 +310,13 @@ function wire(root, ctx) {
     const previous = draft.day;
     const day = e.target.value;
     readForm(root);
+    // While continuing or correcting a logged session, relabelling the day
+    // must not touch the exercises — only a fresh draft reloads from the plan.
+    if (editing) {
+      draft.day = day;
+      repaint();
+      return;
+    }
     if (draft.dirty && !(await confirmAction(`Switch to day ${day}? The sets you have entered will be replaced.`, { okLabel: 'Switch' }))) {
       draft.day = previous;
       e.target.value = previous;
@@ -292,8 +328,32 @@ function wire(root, ctx) {
     repaint();
   });
 
-  root.querySelector('#date').addEventListener('change', () => {
+  root.querySelector('#date').addEventListener('change', async (e) => {
+    // In an explicit edit the date field re-dates the session being corrected.
+    // Otherwise it selects which day to work on: load that day's session, or
+    // start a fresh draft for it.
+    if (editing && !autoLoaded) {
+      readForm(root);
+      repaint();
+      return;
+    }
+    const previous = draft.date;
+    const date = e.target.value;
+    if (!date || date === previous) return;
     readForm(root);
+    if (draft.dirty && !(await confirmAction(`Open ${fmtDate(date)}? The unsaved changes here will be discarded.`, { okLabel: 'Open' }))) {
+      draft.date = previous;
+      e.target.value = previous;
+      return;
+    }
+    try {
+      const y = Number(date.slice(0, 4));
+      await loadYears(y, y);
+    } catch (err) {
+      ctx.handleError(err);
+      return;
+    }
+    initDraftForDate(date);
     repaint();
   });
 
@@ -345,7 +405,8 @@ function wire(root, ctx) {
     const msg = editing ? 'Discard these changes?' : 'Discard this session draft?';
     if (!(await confirmAction(msg, { danger: true, okLabel: 'Discard' }))) return;
     editing = null;
-    draft = buildDraft(nextRotationDay());
+    autoLoaded = false;
+    initDraftForDate(todayISO());
     repaint();
   });
 
@@ -363,6 +424,7 @@ function wire(root, ctx) {
         await replaceSession(editing, session);
         toast(`Updated — ${fmtDate(session.date)} day ${session.day}.`);
         editing = null;
+        autoLoaded = false;
       } else {
         await saveSession(session);
         toast(`Saved — ${fmtDate(session.date)} day ${session.day}.`);
@@ -401,5 +463,11 @@ function toSession(d) {
   const dur = intOrUndef(d.duration_min);
   if (dur !== undefined) session.duration_min = dur;
   if (d.notes.trim()) session.notes = d.notes.trim();
+  // Correcting an imported session keeps its provenance — a hand edit does not
+  // turn machine data into manual data. Manual sessions never gain a src.
+  if (editing?.src !== undefined) {
+    session.src = editing.src;
+    if (editing.ext_id !== undefined) session.ext_id = editing.ext_id;
+  }
   return session;
 }

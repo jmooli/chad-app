@@ -285,12 +285,6 @@ export function allReadings() {
   return [...state.metricYears.values()].flat().sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
 }
 
-/** The most recent session, or null. */
-export function lastSession() {
-  const all = allSessions();
-  return all.length ? all[all.length - 1] : null;
-}
-
 /**
  * The most recent session that included a given exercise.
  *
@@ -318,11 +312,14 @@ export function lastSessionWith(exId, day) {
 export function nextRotationDay() {
   const letters = state.plan ? Object.keys(state.plan.days) : [];
   if (!letters.length) return null;
-  const last = lastSession();
-  if (!last) return letters[0];
-  const i = letters.indexOf(last.day);
-  if (i < 0) return letters[0];
-  return letters[(i + 1) % letters.length];
+  // Only plan-day sessions advance the rotation — an off-plan walk (or an
+  // imported activity, always day "X") must not reset the cycle to day A.
+  const all = allSessions();
+  for (let i = all.length - 1; i >= 0; i--) {
+    const j = letters.indexOf(all[i].day);
+    if (j >= 0) return letters[(j + 1) % letters.length];
+  }
+  return letters[0];
 }
 
 /**
