@@ -17,7 +17,16 @@ const RANGES = [
   { key: 'all', label: 'All', days: null },
 ];
 
-const view = { range: '3m', exercise: null };
+const view = { range: '3m', exercise: null, folded: new Set() };
+
+/** A folded chart is not rendered at all — the bar alone is enough to glance past it. */
+const foldHead = (key, label, summary) => {
+  const folded = view.folded.has(key);
+  return `<button type="button" class="fold" data-fold="${esc(key)}" aria-expanded="${!folded}">
+    <span class="chev" aria-hidden="true">${folded ? '▸' : '▾'}</span>${label}
+    ${folded && summary ? `<span class="fold-summary">${esc(summary)}</span>` : ''}
+  </button>`;
+};
 
 export default async function renderProgress(root, ctx) {
   const years = await knownYears();
@@ -56,13 +65,14 @@ function paint(root, ctx) {
         <div class="stat"><span class="stat-n">${readings.length}</span><span class="stat-l">readings</span></div>
       </div>
 
-      <h2 class="section-head">Lifts</h2>
-      ${lifts.length
-        ? `<select id="lift-select" aria-label="Exercise">
-             ${lifts.map((id) => `<option value="${esc(id)}" ${id === view.exercise ? 'selected' : ''}>${esc(exerciseName(id))}</option>`).join('')}
-           </select>
-           <div id="lift-chart">${liftChartHTML(sessions, view.exercise)}</div>`
-        : '<p class="muted">No sessions logged in this range.</p>'}
+      <h2 class="section-head">${foldHead('lifts', 'Lifts', view.exercise ? exerciseName(view.exercise) : '')}</h2>
+      ${view.folded.has('lifts') ? ''
+        : lifts.length
+          ? `<select id="lift-select" aria-label="Exercise">
+               ${lifts.map((id) => `<option value="${esc(id)}" ${id === view.exercise ? 'selected' : ''}>${esc(exerciseName(id))}</option>`).join('')}
+             </select>
+             <div id="lift-chart">${liftChartHTML(sessions, view.exercise)}</div>`
+          : '<p class="muted">No sessions logged in this range.</p>'}
 
       <h2 class="section-head">Health metrics</h2>
       ${metricSections(readings) || '<p class="muted">No readings in this range.</p>'}
@@ -71,6 +81,13 @@ function paint(root, ctx) {
   root.querySelectorAll('[data-range]').forEach((b) =>
     b.addEventListener('click', () => {
       view.range = b.dataset.range;
+      paint(root, ctx);
+    }),
+  );
+  root.querySelectorAll('[data-fold]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const key = b.dataset.fold;
+      if (!view.folded.delete(key)) view.folded.add(key);
       paint(root, ctx);
     }),
   );
@@ -192,9 +209,19 @@ function metricSections(readings) {
     .map(([typeId, rs]) => {
       const t = state.types.get(typeId);
       if (!t) return '';
+      const comps = t.shape === 'number' ? [null] : t.primary_series || Object.keys(t.shape);
+
+      if (view.folded.has(typeId)) {
+        const last = rs[rs.length - 1];
+        const latest = comps.map((c) => fmtNum(c ? last.value[c] : last.value, t.decimals ?? 1)).join('/');
+        return `
+          <article class="metric-block">
+            <h3>${foldHead(typeId, `${esc(t.name)} <span class="unit">${esc(t.unit)}</span>`, `latest ${latest}`)}</h3>
+          </article>`;
+      }
+
       const span = Date.parse(rs[rs.length - 1].ts) - Date.parse(rs[0].ts);
       const mode = aggregationFor(span);
-      const comps = t.shape === 'number' ? [null] : t.primary_series || Object.keys(t.shape);
 
       const series = comps.map((c, i) => ({
         name: c ? `${t.name} ${c}` : t.name,
@@ -223,7 +250,7 @@ function metricSections(readings) {
 
       return `
         <article class="metric-block">
-          <h3>${esc(t.name)} <span class="unit">${esc(t.unit)}</span></h3>
+          <h3>${foldHead(typeId, `${esc(t.name)} <span class="unit">${esc(t.unit)}</span>`, '')}</h3>
           ${aggNote(mode, rs.length)}
           ${chartSVG({ series, unit: t.unit, refLines: refLinesFor(typeId), bands })}
           ${legendHTML(series)}

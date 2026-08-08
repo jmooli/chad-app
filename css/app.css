@@ -185,16 +185,17 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .ex-card header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .ex-card h2 { margin: 0; font-size: 1.02rem; flex: 1; min-width: 0; }
 
-/* Fold toggle: the whole title row is the tap target — gym thumbs, not mouse pointers. */
-.ex-card .fold {
+/* Fold toggle, shared by Today cards, Progress charts and the clinical report:
+   the whole title row is the tap target — gym thumbs, not mouse pointers. */
+.fold {
   display: flex; align-items: center; gap: .45rem; width: 100%; min-height: var(--tap);
   background: none; border: 0; padding: 0; margin: 0;
   color: var(--text); font: inherit; font-size: inherit; font-weight: inherit;
   text-align: left; cursor: pointer;
 }
-.ex-card .chev { color: var(--muted); font-size: .72rem; flex: none; }
-.ex-card .fold-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ex-card .fold .badge { flex: none; }
+.chev { color: var(--muted); font-size: .72rem; flex: none; }
+.fold-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fold .badge { flex: none; }
 .fold-summary {
   flex: 1; min-width: 0; text-align: right;
   color: var(--muted); font-size: .8rem; font-weight: 400;
@@ -343,6 +344,9 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .footnote td { color: var(--muted); font-size: .82rem; }
 .report-foot { color: var(--muted); font-size: .82rem; margin-top: 1.5rem; border-top: 1px solid var(--line); padding-top: .6rem; }
 
+/* Folded report blocks stay in the DOM: the screen hides them, print never does. */
+.report-block.collapsed .fold-body { display: none; }
+
 body.locked #header, body.locked .clinical-controls { display: none; }
 body.locked .unlock-hint { display: block; color: var(--muted); font-size: .8rem; }
 
@@ -391,6 +395,10 @@ body.locked .unlock-hint { display: block; color: var(--muted); font-size: .8rem
   :root { --bg: #fff; --surface: #fff; --surface-2: #fff; --text: #000; --muted: #444; --line: #bbb; color-scheme: light; }
   body { background: #fff; color: #000; font-size: 12pt; }
   .no-print, #header, #toasts, .clinical-controls { display: none !important; }
+
+  /* The report prints complete regardless of what is folded on screen. */
+  .report-block .fold-body { display: block !important; }
+  .chev, .fold-summary { display: none !important; }
   #view { max-width: none; padding: 0; }
   .report { border: 0; padding: 0; }
   .report-block { break-inside: avoid; page-break-inside: avoid; margin: 1.2rem 0; }

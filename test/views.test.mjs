@@ -316,6 +316,23 @@ await attempt('range presets re-render', async () => {
   view.querySelector('[data-range="all"]').dispatchEvent(new window.Event('click', { bubbles: true }));
   if (!view.querySelector('[data-range="all"]').classList.contains('on')) throw new Error('range not applied');
 });
+await attempt('a metric chart folds to a bar with the latest value', async () => {
+  const btn = view.querySelector('.metric-block [data-fold]');
+  const key = btn.dataset.fold;
+  btn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  const folded = view.querySelector(`[data-fold="${key}"]`);
+  if (folded.getAttribute('aria-expanded') !== 'false') throw new Error('did not fold');
+  if (!/latest/.test(folded.textContent)) throw new Error('no latest-value summary on the bar');
+  if (folded.closest('.metric-block').querySelector('svg')) throw new Error('folded chart still rendered');
+  folded.dispatchEvent(new window.Event('click', { bubbles: true }));
+  if (!view.querySelector(`[data-fold="${key}"]`).closest('.metric-block').querySelector('svg')) throw new Error('chart did not come back');
+});
+await attempt('the lifts section folds too', async () => {
+  view.querySelector('[data-fold="lifts"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+  if (view.querySelector('#lift-select')) throw new Error('lifts did not fold');
+  view.querySelector('[data-fold="lifts"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+  if (!view.querySelector('#lift-select')) throw new Error('lifts did not unfold');
+});
 await attempt('switching the charted lift works', async () => {
   const sel = view.querySelector('#lift-select');
   sel.value = 'pullup';
@@ -332,6 +349,17 @@ ok('blood pressure is split morning vs evening', /Morning/.test(view.textContent
 ok('the reading table is present', view.querySelectorAll('.reading-table').length >= 1);
 ok('no gym content on the report', !/Back Squat|Pull-up/.test(view.querySelector('.report').textContent));
 ok('reference lines drawn for BP', view.innerHTML.includes('refline'));
+await attempt('a report block folds on screen but keeps its body for print', async () => {
+  const btn = view.querySelector('.report-block [data-fold]');
+  const key = btn.dataset.fold;
+  btn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  const block = view.querySelector(`[data-fold="${key}"]`).closest('.report-block');
+  if (!block.classList.contains('collapsed')) throw new Error('block did not fold');
+  if (!block.querySelector('.fold-body .reading-table')) throw new Error('folded body left the DOM — print would lose it');
+  if (!/readings · mean/.test(block.textContent)) throw new Error('no summary line on the bar');
+  view.querySelector(`[data-fold="${key}"]`).dispatchEvent(new window.Event('click', { bubbles: true }));
+  if (view.querySelector(`[data-fold="${key}"]`).closest('.report-block').classList.contains('collapsed')) throw new Error('did not unfold');
+});
 await attempt('print button calls print', async () => {
   view.querySelector('#c-print').dispatchEvent(new window.Event('click', { bubbles: true }));
   if (!globalThis.__printed) throw new Error('print not called');

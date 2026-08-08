@@ -11,7 +11,7 @@ import { chartSVG, legendHTML, SERIES_COLORS } from '../chart.js';
 import { summarize, partOfDay, fmtNum, fmtDate, fmtDateTime } from '../stats.js';
 import { esc, download, csvCell, toast } from '../ui.js';
 
-const view = { types: null, from: null, to: null };
+const view = { types: null, from: null, to: null, folded: new Set() };
 
 export default async function renderClinical(root, ctx) {
   const years = await knownYears();
@@ -124,12 +124,26 @@ function mealSummaryLines() {
   return lines.join('');
 }
 
+/**
+ * Blocks fold to bars on screen for browsing, but the whole body always stays
+ * in the DOM: print shows the complete report no matter what is folded when
+ * the phone is handed over.
+ */
 function blockHTML(typeId, readings) {
   const t = state.types.get(typeId);
   if (!t) return '';
-  if (!readings.length) return `<div class="report-block"><h3>${esc(t.name)}</h3><p class="muted">No readings in this period.</p></div>`;
-
+  const folded = view.folded.has(typeId);
   const comps = t.shape === 'number' ? [null] : t.primary_series || Object.keys(t.shape);
+
+  const head = `<h3><button type="button" class="fold" data-fold="${esc(typeId)}" aria-expanded="${!folded}">
+    <span class="chev" aria-hidden="true">${folded ? '▸' : '▾'}</span>${esc(t.name)} <span class="unit">(${esc(t.unit)})</span>
+    ${folded ? `<span class="fold-summary">${esc(foldLine(t, readings, comps))}</span>` : ''}
+  </button></h3>`;
+
+  if (!readings.length) {
+    return `<div class="report-block${folded ? ' collapsed' : ''}">${head}<div class="fold-body"><p class="muted">No readings in this period.</p></div></div>`;
+  }
+
   const series = comps.map((c, i) => ({
     name: c || t.name,
     color: SERIES_COLORS[i % SERIES_COLORS.length],
@@ -137,14 +151,24 @@ function blockHTML(typeId, readings) {
   }));
 
   return `
-    <div class="report-block">
-      <h3>${esc(t.name)} <span class="unit">(${esc(t.unit)})</span></h3>
-      ${chartSVG({ series, unit: t.unit, height: 260, refLines: typeId === 'bp' ? [{ y: 140, label: '140' }, { y: 90, label: '90' }] : [] })}
-      ${legendHTML(series)}
-      ${summaryHTML(typeId, t, readings, comps)}
-      ${tableHTML(t, readings, comps)}
+    <div class="report-block${folded ? ' collapsed' : ''}">
+      ${head}
+      <div class="fold-body">
+        ${chartSVG({ series, unit: t.unit, height: 260, refLines: typeId === 'bp' ? [{ y: 140, label: '140' }, { y: 90, label: '90' }] : [] })}
+        ${legendHTML(series)}
+        ${summaryHTML(typeId, t, readings, comps)}
+        ${tableHTML(t, readings, comps)}
+      </div>
     </div>`;
 }
+
+/** What the bar shows while folded: how many readings, and their mean. */
+const foldLine = (t, readings, comps) => {
+  if (!readings.length) return 'no readings';
+  const dec = t.decimals ?? 1;
+  const means = comps.map((c) => summarize(readings.map((r) => (c ? r.value[c] : r.value)).filter(Number.isFinite))?.mean);
+  return `${readings.length} readings · mean ${means.map((m) => (m == null ? '–' : fmtNum(m, dec))).join('/')}`;
+};
 
 function summaryHTML(typeId, t, readings, comps) {
   const dec = t.decimals ?? 1;
@@ -227,6 +251,14 @@ function wire(root, ctx) {
     view.to = e.target.value;
     paint(root, ctx);
   });
+
+  root.querySelectorAll('[data-fold]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const key = b.dataset.fold;
+      if (!view.folded.delete(key)) view.folded.add(key);
+      paint(root, ctx);
+    }),
+  );
 
   root.querySelector('#c-print')?.addEventListener('click', () => window.print());
 
