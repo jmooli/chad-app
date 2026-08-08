@@ -157,6 +157,18 @@ await attempt('the more-options row toggles', async () => {
   btn.dispatchEvent(new window.Event('click', { bubbles: true }));
   if (btn.closest('.set').querySelector('.set-more').hidden) throw new Error('did not open');
 });
+await attempt('a card folds to a bar and back without losing typed values', async () => {
+  view.querySelector('.ex-card .kg').value = '55';
+  view.querySelector('[data-act="toggle-card"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+  const card = view.querySelector('.ex-card');
+  if (!card.classList.contains('collapsed')) throw new Error('card did not fold');
+  if (card.querySelector('.fold').getAttribute('aria-expanded') !== 'false') throw new Error('aria-expanded not updated');
+  if (!card.querySelector('.fold-summary')) throw new Error('folded bar has no summary');
+  if (!card.querySelector('.kg')) throw new Error('folded card dropped its inputs from the DOM');
+  view.querySelector('[data-act="toggle-card"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+  if (view.querySelector('.ex-card').classList.contains('collapsed')) throw new Error('card did not unfold');
+  if (view.querySelector('.ex-card .kg').value !== '55') throw new Error('typed weight lost across the fold');
+});
 await attempt('switching to seconds works', async () => {
   view.querySelector('[data-act="toggle-units"]').dispatchEvent(new window.Event('click', { bubbles: true }));
   if (!view.querySelector('.ex-card .secs')) throw new Error('no seconds input');

@@ -267,6 +267,8 @@ function paint(root, ctx) {
   wire(root, ctx);
 }
 
+// A folded card keeps its sets in the DOM (hidden by CSS), so readForm still
+// sees every input and nothing typed is lost while the card is a bar.
 function cardHTML(card, i) {
   const ex = state.exercises.get(card.ex);
   const bodyweight = ex?.equipment === 'bodyweight';
@@ -275,9 +277,14 @@ function cardHTML(card, i) {
     : 'No previous session logged';
 
   return `
-    <article class="ex-card${card.fromTarget ? ' from-target' : ''}" data-card="${i}">
+    <article class="ex-card${card.fromTarget ? ' from-target' : ''}${card.collapsed ? ' collapsed' : ''}" data-card="${i}">
       <header>
-        <h2>${esc(exerciseName(card.ex))}${card.fromTarget ? ' <span class="badge">target</span>' : ''}</h2>
+        <h2><button type="button" class="fold" data-act="toggle-card" aria-expanded="${!card.collapsed}">
+          <span class="chev" aria-hidden="true">${card.collapsed ? '▸' : '▾'}</span>
+          <span class="fold-name">${esc(exerciseName(card.ex))}</span>
+          ${card.fromTarget ? '<span class="badge">target</span>' : ''}
+          ${card.collapsed ? `<span class="fold-summary">${esc(foldSummary(card))}</span>` : ''}
+        </button></h2>
         <button class="icon-btn" data-act="del-card" title="Remove exercise" aria-label="Remove ${esc(exerciseName(card.ex))}">×</button>
       </header>
       <p class="meta">
@@ -329,6 +336,13 @@ function setHTML(s, j, mode, bodyweight) {
       </div>
     </div>`;
 }
+
+/** What the bar shows while folded: the sets as they stand, or the plan target. */
+const foldSummary = (card) => {
+  const filled = card.sets.filter((s) => s.reps !== undefined || s.secs !== undefined || s.km !== undefined);
+  if (filled.length) return filled.map(setSummary).join(', ');
+  return card.target || `${card.sets.length} ${card.sets.length === 1 ? 'set' : 'sets'}`;
+};
 
 const setSummary = (s) => {
   if (s.km !== undefined) return `${s.km} km${s.secs ? ` in ${Math.round(s.secs / 60)} min` : ''}`;
@@ -452,6 +466,9 @@ function wire(root, ctx) {
       const j = Number(btn.closest('.set').dataset.set);
       card.sets.splice(j, 1);
       if (!card.sets.length) card.sets.push({});
+      repaint();
+    } else if (act === 'toggle-card') {
+      card.collapsed = !card.collapsed;
       repaint();
     } else if (act === 'del-card') {
       draft.cards.splice(Number(cardEl.dataset.card), 1);

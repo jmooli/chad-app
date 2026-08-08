@@ -183,7 +183,30 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .ex-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: .65rem .7rem; margin: .55rem 0; box-shadow: var(--shadow); }
 .ex-card.from-target { border-left: 3px solid var(--ok); }
 .ex-card header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
-.ex-card h2 { margin: 0; font-size: 1.02rem; }
+.ex-card h2 { margin: 0; font-size: 1.02rem; flex: 1; min-width: 0; }
+
+/* Fold toggle: the whole title row is the tap target — gym thumbs, not mouse pointers. */
+.ex-card .fold {
+  display: flex; align-items: center; gap: .45rem; width: 100%; min-height: var(--tap);
+  background: none; border: 0; padding: 0; margin: 0;
+  color: var(--text); font: inherit; font-size: inherit; font-weight: inherit;
+  text-align: left; cursor: pointer;
+}
+.ex-card .chev { color: var(--muted); font-size: .72rem; flex: none; }
+.ex-card .fold-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex-card .fold .badge { flex: none; }
+.fold-summary {
+  flex: 1; min-width: 0; text-align: right;
+  color: var(--muted); font-size: .8rem; font-weight: 400;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Folded: a slim bar. Sets stay in the DOM so typed values survive; the remove
+   button hides so a bar cannot lose an exercise to a stray tap. */
+.ex-card.collapsed { padding-top: .1rem; padding-bottom: .1rem; }
+.ex-card.collapsed .meta, .ex-card.collapsed .prev, .ex-card.collapsed .warmup,
+.ex-card.collapsed .sets, .ex-card.collapsed .card-actions,
+.ex-card.collapsed [data-act="del-card"] { display: none; }
 .ex-card .meta { display: flex; gap: .4rem .5rem; flex-wrap: wrap; margin: .2rem 0; font-size: .78rem; }
 .ex-card .target { background: var(--surface-2); padding: .1rem .45rem; border-radius: 999px; }
 .ex-card .basis, .ex-card .inc { color: var(--muted); }
