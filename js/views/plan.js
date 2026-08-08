@@ -4,7 +4,7 @@
  * training plan: same idea, food instead of iron.
  */
 
-import { state, exerciseName, todayISO } from '../store.js';
+import { state, exerciseName, todayISO, targetsStatus, loadYears } from '../store.js';
 import { getFile, listDir } from '../github.js';
 import { esc } from '../ui.js';
 import { fmtDate, fmtNum } from '../stats.js';
@@ -12,10 +12,14 @@ import { fmtDate, fmtNum } from '../stats.js';
 export default async function renderPlan(root, { handleError }) {
   const archive = await listDir('plan/archive').catch(() => []);
   const archived = archive.filter((f) => f.name.endsWith('.json'));
+  // Done-detection for the targets queue needs the log in memory.
+  const year = new Date().getFullYear();
+  await loadYears(year - 1, year);
 
   root.innerHTML = `
     <section class="plan">
       <h1>Plan</h1>
+      ${targetsHTML(targetsStatus())}
       <div id="plan-body">${state.plan ? planHTML(state.plan, true) : '<p class="notice">No plan file found in the data repo.</p>'}</div>
 
       ${state.mealPlans.length ? `<h2 class="section-head">Meal plan</h2>${state.mealPlans.map(mealPlanHTML).join('')}` : ''}
@@ -46,6 +50,56 @@ export default async function renderPlan(root, { handleError }) {
       }
     });
   });
+}
+
+/* --- current targets ------------------------------------------------------ *
+ * The reviewed queue of upcoming sessions with decided weights, written only
+ * by Claude (set_targets) during review conversations. Expiry is hard: past
+ * valid_until the numbers are not shown at all — the plan below is
+ * authoritative and the expiry is stated. Never confidently stale.
+ */
+
+function targetsHTML(ts) {
+  if (ts.status === 'none') return '';
+  const t = ts.targets;
+
+  if (ts.status === 'expired') {
+    return `
+      <div class="plan-doc targets-doc">
+        <div class="plan-head">
+          <h2>Current targets <span class="badge badge-muted">expired</span></h2>
+        </div>
+        <p class="notice">Targets expired ${ts.expiredDays} day${ts.expiredDays === 1 ? '' : 's'} ago (were valid until ${esc(fmtDate(t.valid_until))}).
+        The plan below and its increment rules are authoritative until the next review with Claude.</p>
+      </div>`;
+  }
+
+  const specHTML = ({ spec, done }, i) => `
+    <article class="day-card${done ? ' target-done' : ''}">
+      <h3>${i + 1}. Day ${esc(spec.day)} ${done ? '<span class="badge badge-muted">done</span>' : i === ts.queue.findIndex((q) => !q.done) ? '<span class="badge">next</span>' : '<span class="badge badge-muted">queued</span>'}</h3>
+      <table class="plan-table">
+        <tbody>
+          ${spec.exercises.map((e) => `<tr>
+            <td class="ex">${esc(exerciseName(e.ex))}</td>
+            <td class="sets">${esc(e.sets)} × ${esc(e.reps)}</td>
+            <td class="inc">${e.kg !== undefined ? `${esc(e.kg)} kg` : ''}</td>
+          </tr>
+          ${e.note ? `<tr class="warmup-row"><td colspan="3">${esc(e.note)}</td></tr>` : ''}`).join('')}
+        </tbody>
+      </table>
+      ${spec.note ? `<p class="tl-note">${esc(spec.note)}</p>` : ''}
+    </article>`;
+
+  return `
+    <div class="plan-doc targets-doc">
+      <div class="plan-head">
+        <h2>Current targets <span class="badge">reviewed</span></h2>
+        <p class="meta"><span>written ${esc(fmtDate(t.written))} · valid until ${esc(fmtDate(t.valid_until))}</span></p>
+      </div>
+      ${t.note ? `<p class="rules-note">${esc(t.note)}</p>` : ''}
+      ${ts.status === 'completed' ? '<p class="notice notice-muted">All queued sessions are done — plan fallback below until the next review.</p>' : ''}
+      <div class="days">${ts.queue.map(specHTML).join('')}</div>
+    </div>`;
 }
 
 function planHTML(plan, isCurrent) {

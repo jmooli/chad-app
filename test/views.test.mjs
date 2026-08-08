@@ -494,8 +494,25 @@ await store.loadLogYear(YEAR);
   ok('day C suggests from the day C session', c.sets[0].kg === 27.5, `got ${c.sets[0].kg}`);
   const a = store.suggestSets({ ex: 'squat', sets: 3, reps: [5, 5], increment_kg: 2.5 }, 'A');
   ok('day A suggests from the day A session', a.sets[0].kg === 45, `got ${a.sets[0].kg}`);
+  // Slot attribution is conservative: day-A history belongs to the A slot and
+  // the C session's 3×8 fits two competing 8-rep slots, so an unseen day gets
+  // no suggestion at all rather than a possibly-wrong one.
   const z = store.suggestSets({ ex: 'squat', sets: 3, reps: [8, 8], increment_kg: 2.5 }, 'Z');
-  ok('an unseen day falls back to any session', z.sets[0].kg !== undefined);
+  ok('an unseen day with only ambiguous history suggests no weight', z.sets[0].kg === undefined, `got ${z.sets[0].kg}`);
+  // An off-plan (day X) session attributes by rep scheme, and only when
+  // exactly one slot fits. Day A is the plan's only squat slot (3×8) here, so
+  // a day-X 3×8 feeds A — but not the ad-hoc C query, where two 8-rep slots
+  // compete and the session stays ambiguous.
+  FILES[`logs/logs-${YEAR}.json`].sessions.push({
+    date: `${YEAR}-07-22`, day: 'X',
+    exercises: [{ ex: 'squat', sets: [{ kg: 30, reps: 8 }, { kg: 30, reps: 8 }, { kg: 30, reps: 8 }] }],
+  });
+  store.invalidate();
+  await store.loadLogYear(YEAR);
+  const a2 = store.suggestSets({ ex: 'squat', sets: 3, reps: [8, 8], increment_kg: 2.5 }, 'A');
+  ok('a day-X session attributes to the uniquely fitting slot', a2.prevDate === `${YEAR}-07-22` && a2.sets[0].kg === 32.5, `got ${a2.prevDate} @ ${a2.sets[0].kg}`);
+  const c2 = store.suggestSets({ ex: 'squat', sets: 3, reps: [8, 8], increment_kg: 2.5 }, 'C');
+  ok('the day-C slot skips the ambiguous day-X session', c2.prevDate === `${YEAR}-07-13` && c2.sets[0].kg === 27.5, `got ${c2.prevDate} @ ${c2.sets[0].kg}`);
   const none = store.suggestSets({ ex: 'deadlift', sets: 3, reps: [5, 5], increment_kg: 5 }, 'B');
   ok('an untrained lift suggests no weight rather than a wrong one', none.sets[0].kg === undefined && none.basis === 'no previous session');
 }
@@ -600,6 +617,103 @@ await attempt('clinical report carries the adherence summary line', async () => 
   if (!/Quark Bowl Plan/.test(line.textContent)) throw new Error(line.textContent);
   if (!/mean 3\.5 bowls\/day/.test(line.textContent)) throw new Error(`mean wrong: ${line.textContent}`);
   if (!/\(4\/21\)/.test(line.textContent)) throw new Error(`coverage wrong: ${line.textContent}`);
+});
+
+console.log('\nCurrent targets');
+
+// A reviewed targets block: two queued sessions, valid for another 12 days.
+// The manual B session predates `written`, so nothing is consumed yet.
+FILES[`logs/logs-${YEAR}.json`] = { schema_version: 3, sessions: [
+  { date: daysAgo(3), day: 'B', exercises: [{ ex: 'plank', sets: [{ secs: 45 }] }] },
+] };
+FILES['plan/targets.json'] = { schema_version: 1, written: daysAgo(2), valid_until: daysAgo(-12), note: 'Biweekly review', sessions: [
+  { day: 'A', exercises: [
+    { ex: 'squat', sets: 3, reps: 5, kg: 92.5, note: 'push — last top set RPE 7' },
+    { ex: 'pullup', sets: 3, reps: 6 },
+  ], note: 'Keep rests honest' },
+  { day: 'B', exercises: [{ ex: 'plank', sets: 3, reps: 1 }] },
+] };
+store.invalidate();
+await store.loadRegistries();
+
+await attempt('today prefills from the reviewed target, visibly marked', async () => {
+  await today.default(view, ctx);
+  await resetToday();
+  if (view.querySelector('#day').value !== 'A') throw new Error(`target day not chosen: ${view.querySelector('#day').value}`);
+  if (!/Reviewed target/.test(view.textContent)) throw new Error('no reviewed-target banner');
+  if (!view.querySelector('.ex-card.from-target')) throw new Error('cards not marked as targets');
+  const kg = view.querySelector('.ex-card .kg');
+  if (kg.value !== '92.5') throw new Error(`decided weight not prefilled: "${kg.value}"`);
+  if (!/push — last top set RPE 7/.test(view.textContent)) throw new Error('per-exercise rationale not shown');
+  if (!/Keep rests honest/.test(view.textContent)) throw new Error('per-session rationale not shown');
+  if (!/3 × 5 @ 92\.5 kg/.test(view.textContent)) throw new Error('target scheme not shown');
+});
+
+await attempt('the plan view lists the target queue ahead of the plan', async () => {
+  await plan.default(view, ctx);
+  if (!/Current targets/.test(view.textContent)) throw new Error('no targets section');
+  if (!/92\.5 kg/.test(view.textContent)) throw new Error('decided weight missing');
+  const badges = [...view.querySelectorAll('.targets-doc .day-card .badge')].map((b) => b.textContent);
+  if (JSON.stringify(badges) !== JSON.stringify(['next', 'queued'])) throw new Error(`badges wrong: ${badges}`);
+  if (view.textContent.indexOf('Current targets') > view.textContent.indexOf('Comeback Full-Body')) throw new Error('targets not ahead of the plan');
+});
+
+await attempt('logging the target session consumes it from the queue', async () => {
+  FILES[`logs/logs-${YEAR}.json`].sessions.push({
+    date: TODAY, day: 'A',
+    exercises: [{ ex: 'squat', sets: [{ kg: 50, reps: 8 }, { kg: 50, reps: 8 }, { kg: 50, reps: 8 }] }],
+  });
+  store.invalidate();
+  await store.loadYears(YEAR, YEAR);
+  const ts = store.targetsStatus();
+  if (ts.status !== 'active') throw new Error(`status ${ts.status}`);
+  if (!ts.queue[0].done) throw new Error('day-A spec not consumed');
+  if (ts.next.day !== 'B') throw new Error(`next should be B, got ${ts.next.day}`);
+});
+
+await attempt('an imported session never consumes a target spec', async () => {
+  FILES[`logs/logs-${YEAR}.json`].sessions.push({
+    date: TODAY, day: 'B', exercises: [{ ex: 'run', sets: [{ km: 3, secs: 1200 }] }], src: 'google-health', ext_id: 'act:t1',
+  });
+  store.invalidate();
+  await store.loadYears(YEAR, YEAR);
+  const ts = store.targetsStatus();
+  if (ts.queue[1].done) throw new Error('imported day-B session consumed the B spec');
+});
+
+console.log('\nExpired targets');
+
+// The block ran out yesterday: the gym view must show the plan fallback and
+// say when the targets expired — never the stale numbers as current.
+FILES['plan/targets.json'].written = daysAgo(15);
+FILES['plan/targets.json'].valid_until = daysAgo(1);
+{
+  const shard = FILES[`logs/logs-${YEAR}.json`];
+  shard.sessions.find((s) => s.date === TODAY && s.src === undefined).date = daysAgo(2);
+  shard.sessions.sort((a, b) => a.date.localeCompare(b.date));
+}
+store.invalidate();
+await store.loadRegistries();
+
+await attempt('expired targets fall back to the plan and say so', async () => {
+  await today.default(view, ctx);
+  await resetToday();
+  if (!/Targets expired 1 day ago/.test(view.textContent)) throw new Error('no expiry banner');
+  if (view.querySelector('.ex-card.from-target')) throw new Error('stale target cards rendered');
+  if (/Reviewed target —/.test(view.textContent)) throw new Error('stale target banner rendered');
+  // Plan fallback: day A squat progresses from the logged 3×8@50, not the stale 92.5.
+  setDay('A');
+  await new Promise((r) => setTimeout(r, 10));
+  if (!/Targets expired 1 day ago/.test(view.textContent)) throw new Error('expiry banner lost on day switch');
+  if (view.querySelector('.ex-card.from-target')) throw new Error('stale target cards rendered on day A');
+  const kg = view.querySelector('.ex-card .kg');
+  if (kg.value !== '52.5') throw new Error(`expected plan-fallback 52.5, got "${kg.value}"`);
+});
+
+await attempt('the plan view reports the expiry without stale numbers', async () => {
+  await plan.default(view, ctx);
+  if (!/expired 1 day ago/.test(view.textContent)) throw new Error('no expiry note');
+  if (/92\.5/.test(view.textContent)) throw new Error('stale target numbers still shown');
 });
 
 console.log(`\n${fail ? 'FAILED' : 'PASSED'} — ${pass} passed, ${fail} failed.`);

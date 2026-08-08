@@ -161,6 +161,10 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
   border-left-color: var(--muted);
   color: var(--muted); font-size: .85rem;
 }
+.notice.notice-target {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  border-left-color: var(--ok);
+}
 .err { color: var(--danger); margin-top: .8rem; }
 
 /* --- setup -------------------------------------------------------------- */
@@ -177,6 +181,7 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 /* --- today -------------------------------------------------------------- */
 
 .ex-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: .65rem .7rem; margin: .55rem 0; box-shadow: var(--shadow); }
+.ex-card.from-target { border-left: 3px solid var(--ok); }
 .ex-card header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .ex-card h2 { margin: 0; font-size: 1.02rem; }
 .ex-card .meta { display: flex; gap: .4rem .5rem; flex-wrap: wrap; margin: .2rem 0; font-size: .78rem; }
@@ -206,6 +211,9 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .badge-muted { background: var(--surface-2); color: var(--muted); }
 .badge-danger { background: var(--danger); color: #fff; }
 .rules { color: var(--muted); font-size: .9rem; padding-left: 1.1rem; }
+.targets-doc { border-left: 3px solid var(--ok); margin-bottom: 1rem; }
+.targets-doc .rules-note { color: var(--muted); font-size: .9rem; }
+.day-card.target-done { opacity: .55; }
 .days { display: grid; gap: .8rem; margin-top: 1rem; }
 .day-card { background: var(--surface-2); border-radius: var(--radius); padding: .8rem; }
 .day-card h3 { margin: 0 0 .5rem; }

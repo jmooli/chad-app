@@ -28,6 +28,7 @@ export const state = {
   types: new Map(),
   sources: new Map(),
   plan: null,
+  targets: null,
   mealPlans: [],
   logYears: new Map(),    // year -> sessions[]
   metricYears: new Map(),  // year -> readings[]
@@ -42,11 +43,12 @@ export const sourceIds = () => new Set(state.sources.keys());
 /* --- loading ------------------------------------------------------------ */
 
 export async function loadRegistries() {
-  const [ex, mt, src, plan, meals] = await Promise.all([
+  const [ex, mt, src, plan, targets, meals] = await Promise.all([
     getFile('registry/exercises.json'),
     getFile('registry/metric-types.json'),
     getFile('registry/sources.json'),
     getFile('plan/current.json'),
+    getFile('plan/targets.json'),
     getFile('registry/meal-plans.json'),
   ]);
   if (!ex || !mt || !src) throw new Error('Registry files are missing from the data repo.');
@@ -55,6 +57,7 @@ export async function loadRegistries() {
   state.types = new Map(mt.json.types.map((t) => [t.id, t]));
   state.sources = new Map(src.json.sources.map((s) => [s.id, s]));
   state.plan = plan ? plan.json : null;
+  state.targets = targets ? targets.json : null;
   state.mealPlans = meals ? meals.json.plans || [] : [];
   state.loaded = true;
 }
@@ -285,24 +288,82 @@ export function allReadings() {
   return [...state.metricYears.values()].flat().sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
 }
 
-/**
- * The most recent session that included a given exercise.
- *
- * When a rotation day is given, sessions from that day win. The same lift can
- * appear on two days at different rep schemes — Back Squat is 3×5 on day A and
- * 3×8 on day C — and carrying the heavy five-rep load into the eight-rep day
- * would suggest a weight that was never intended.
- */
-export function lastSessionWith(exId, day) {
+/** The most recent session that included a given exercise, regardless of day. */
+export function lastSessionWith(exId) {
   const all = allSessions();
-  const search = (filterDay) => {
-    for (let i = all.length - 1; i >= 0; i--) {
-      if (filterDay && all[i].day !== filterDay) continue;
-      if (all[i].exercises.some((e) => e.ex === exId)) return all[i];
-    }
-    return null;
+  for (let i = all.length - 1; i >= 0; i--) {
+    if (all[i].exercises.some((e) => e.ex === exId)) return all[i];
+  }
+  return null;
+}
+
+/**
+ * The most recent session attributable to a plan slot — exercise id + rotation
+ * day + rep scheme. Back Squat 3×5 (day A) and 3×8 (day C) are independent
+ * progressions, so five-rep history must never seed an eight-rep suggestion.
+ *
+ * Attribution: the session's day label is authoritative — a day-C session is
+ * day-C history whatever the reps say. A session labeled with another slot's
+ * day belongs to that slot and is skipped. An unlabeled session (day "X", or a
+ * letter that is not a slot for this exercise) is attributed by rep scheme,
+ * and only when it fits exactly one slot; where that is ambiguous the session
+ * is skipped — no suggestion beats a wrong one.
+ */
+function lastSlotSession(exId, day, reps) {
+  const planSlots = [];
+  for (const [letter, d] of Object.entries(state.plan?.days || {})) {
+    const entry = (d.exercises || []).find((e) => e.ex === exId);
+    if (entry) planSlots.push({ day: letter, reps: entry.reps });
+  }
+  const slotDays = new Set(planSlots.map((s) => s.day));
+  const competing = slotDays.has(day) ? planSlots : [...planSlots, { day, reps }];
+
+  // A slot fits when at least half the sets landed inside its rep range.
+  const fits = (sets, [min, max]) => {
+    const r = sets.map((s) => s.reps).filter((x) => typeof x === 'number');
+    return r.length > 0 && r.filter((x) => x >= min && x <= max).length * 2 >= r.length;
   };
-  return (day ? search(day) : null) || search(null);
+
+  const all = allSessions();
+  for (let i = all.length - 1; i >= 0; i--) {
+    const s = all[i];
+    const entry = s.exercises.find((e) => e.ex === exId);
+    if (!entry) continue;
+    if (s.day === day) return s;
+    if (slotDays.has(s.day)) continue;
+    const fitting = competing.filter((c) => fits(entry.sets, c.reps));
+    if (fitting.length === 1 && fitting[0].day === day) return s;
+  }
+  return null;
+}
+
+/**
+ * Current-targets status for a date (data contract: README section 8 in the
+ * data repo). Done-detection is by day label: the Nth queued spec labeled L is
+ * done once more than N-1 manual sessions labeled L exist within the validity
+ * window. Expiry is hard — past valid_until the caller must fall back to the
+ * plan and say so, never render the stale numbers as current.
+ */
+export function targetsStatus(onDate = todayISO()) {
+  const t = state.targets;
+  if (!t || !Array.isArray(t.sessions) || !t.sessions.length) return { status: 'none' };
+  if (onDate > t.valid_until) {
+    const days = Math.round((Date.parse(onDate) - Date.parse(t.valid_until)) / 86400000);
+    return { status: 'expired', targets: t, expiredDays: days };
+  }
+  const counts = new Map();
+  for (const s of allSessions()) {
+    if (s.src === undefined && s.date >= t.written && s.date <= t.valid_until) counts.set(s.day, (counts.get(s.day) || 0) + 1);
+  }
+  const seen = new Map();
+  const queue = t.sessions.map((spec) => {
+    const before = seen.get(spec.day) || 0;
+    seen.set(spec.day, before + 1);
+    return { spec, done: (counts.get(spec.day) || 0) > before };
+  });
+  const next = queue.find((q) => !q.done) || null;
+  if (!next) return { status: 'completed', targets: t, queue };
+  return { status: 'active', targets: t, queue, next: next.spec };
 }
 
 /**
@@ -330,7 +391,7 @@ export function nextRotationDay() {
  */
 export function suggestSets(planEntry, day) {
   const { ex, sets: setCount, reps, increment_kg } = planEntry;
-  const prev = lastSessionWith(ex, day);
+  const prev = lastSlotSession(ex, day, reps);
   const prevSets = prev?.exercises.find((e) => e.ex === ex)?.sets || [];
   const target = reps[1];
 

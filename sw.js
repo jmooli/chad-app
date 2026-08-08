@@ -6,7 +6,7 @@
  * stale reading because the network was slow.
  */
 
-const VERSION = 'chad-shell-v2';
+const VERSION = 'chad-shell-v3';
 
 const SHELL = [
   './',

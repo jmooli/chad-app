@@ -35,7 +35,7 @@ console.log('\n1. Serializer matches the data repo byte-for-byte');
 if (existsSync(join(DATA, 'README.md'))) {
   const dataFiles = [
     'registry/exercises.json', 'registry/metric-types.json', 'registry/sources.json',
-    'registry/meal-plans.json', 'plan/current.json', 'logs/logs-2026.json', 'metrics/metrics-2026.json',
+    'registry/meal-plans.json', 'plan/current.json', 'plan/targets.json', 'logs/logs-2026.json', 'metrics/metrics-2026.json',
   ];
   for (const rel of dataFiles) {
     if (!existsSync(join(DATA, rel))) continue;

@@ -7,7 +7,7 @@
  * should be: open, glance, tap save.
  */
 
-import { state, loadYears, saveSession, replaceSession, suggestSets, exerciseName, nextRotationDay, todayISO, lastSessionWith, allSessions } from '../store.js';
+import { state, loadYears, saveSession, replaceSession, suggestSets, exerciseName, nextRotationDay, todayISO, lastSessionWith, allSessions, targetsStatus } from '../store.js';
 import { validateSession } from '../schema.js';
 import { esc, toast, setBusy, on, numOrUndef, intOrUndef, confirmAction, pickExercise } from '../ui.js';
 import { fmtDate } from '../stats.js';
@@ -52,8 +52,9 @@ function initDraftForDate(date) {
   } else {
     editing = null;
     autoLoaded = false;
-    draft = buildDraft(nextRotationDay());
-    draft.date = date;
+    // A valid reviewed target decides the day; otherwise the plan rotation does.
+    const ts = targetsStatus(date);
+    draft = buildDraft(ts.status === 'active' ? ts.next.day : nextRotationDay(), date);
   }
 }
 
@@ -123,13 +124,48 @@ function cardAdHoc(exId) {
   };
 }
 
-function buildDraft(day) {
+/**
+ * A reviewed, unexpired target spec for this day beats the plan-derived
+ * suggestion — it is the decision made in the last review conversation.
+ * Expired or absent targets fall back to the plan and its increment rules;
+ * stale target numbers are never rendered as current.
+ */
+function targetSpecFor(day, date) {
+  const ts = targetsStatus(date);
+  if (ts.status !== 'active') return null;
+  return ts.queue.find((q) => !q.done && q.spec.day === day)?.spec || null;
+}
+
+function buildDraft(day, date = todayISO()) {
+  const spec = targetSpecFor(day, date);
   return {
-    date: todayISO(),
+    date,
     day: day || 'X',
     duration_min: '',
     notes: '',
-    cards: planEntriesFor(day).map((entry) => cardFromPlan(entry, day)),
+    fromTarget: !!spec,
+    targetNote: spec?.note,
+    cards: spec
+      ? spec.exercises.map(cardFromTarget)
+      : planEntriesFor(day).map((entry) => cardFromPlan(entry, day)),
+  };
+}
+
+function cardFromTarget(te) {
+  const prev = lastSessionWith(te.ex);
+  const prevSets = prev?.exercises.find((e) => e.ex === te.ex)?.sets || [];
+  const mode = modeFor(te.ex);
+  return {
+    ex: te.ex,
+    fromTarget: true,
+    target: `${te.sets} × ${te.reps}${te.kg !== undefined ? ` @ ${te.kg} kg` : ''}`,
+    note: te.note,
+    basis: 'reviewed target',
+    prevDate: prev?.date || null,
+    prevSets,
+    mode,
+    sets: Array.from({ length: te.sets }, () =>
+      mode === 'reps' ? { ...(te.kg !== undefined ? { kg: te.kg } : {}), reps: te.reps } : {}),
   };
 }
 
@@ -154,6 +190,33 @@ function draftFromSession(s) {
 
 /* --- rendering ---------------------------------------------------------- */
 
+/**
+ * The targets banner: never silent about which regime the numbers on screen
+ * come from. A reviewed target announces itself; an expired or exhausted
+ * targets block announces the fallback to the plan.
+ */
+function targetsBannerHTML() {
+  if (editing) return '';
+  const ts = targetsStatus(draft.date);
+  const t = ts.targets;
+  if (draft.fromTarget && ts.status === 'active') {
+    const left = ts.queue.filter((q) => !q.done).length;
+    return `<p class="notice notice-target"><strong>Reviewed target</strong> — written ${esc(fmtDate(t.written))}, valid until ${esc(fmtDate(t.valid_until))}.
+      ${draft.targetNote ? `${esc(draft.targetNote)} ` : ''}${left > 1 ? `${left - 1} more queued after this one — see <a href="#/plan">the plan</a>.` : 'Last queued session.'}</p>`;
+  }
+  if (ts.status === 'expired') {
+    const d = ts.expiredDays;
+    return `<p class="notice"><strong>Targets expired ${d} day${d === 1 ? '' : 's'} ago</strong> (were valid until ${esc(fmtDate(t.valid_until))}) — showing the plan fallback. Review with Claude to set new targets.</p>`;
+  }
+  if (ts.status === 'completed') {
+    return `<p class="notice notice-muted">All reviewed target sessions are done — plan fallback until the next review.</p>`;
+  }
+  if (ts.status === 'active' && !draft.fromTarget) {
+    return `<p class="notice notice-muted">No reviewed target for day ${esc(draft.day)} — this is the plan fallback. Queued targets: ${ts.queue.filter((q) => !q.done).map((q) => esc(q.spec.day)).join(', ')}.</p>`;
+  }
+  return '';
+}
+
 function paint(root, ctx) {
   const letters = state.plan ? Object.keys(state.plan.days) : [];
   const planned = planEntriesFor(draft.day);
@@ -172,10 +235,11 @@ function paint(root, ctx) {
         </div>
       </div>
 
+      ${targetsBannerHTML()}
       ${editing && !autoLoaded ? `<p class="notice">Correcting the session logged on ${esc(fmtDate(editing.date))}. Saving replaces it in one commit.</p>` : ''}
       ${autoLoaded ? `<p class="notice">Continuing the session logged for ${esc(fmtDate(draft.date))} (day ${esc(editing.day)}). Add to it freely — saving updates it in one commit.</p>` : ''}
       ${imported.length ? `<p class="notice notice-muted">${imported.length} imported ${imported.length === 1 ? 'activity' : 'activities'} (${esc(imported[0].src)}) ${imported.length === 1 ? 'is' : 'are'} also logged for this day — see <a href="#/log">the log</a>.</p>` : ''}
-      ${!planned.length && draft.day !== 'X' ? `<p class="notice">The plan has no exercises for day ${esc(draft.day)} yet. Add them below, or fill in <a href="#/plan">the plan</a>.</p>` : ''}
+      ${!planned.length && !draft.fromTarget && draft.day !== 'X' ? `<p class="notice">The plan has no exercises for day ${esc(draft.day)} yet. Add them below, or fill in <a href="#/plan">the plan</a>.</p>` : ''}
 
       <div id="cards">${draft.cards.map(cardHTML).join('')}</div>
 
@@ -211,9 +275,9 @@ function cardHTML(card, i) {
     : 'No previous session logged';
 
   return `
-    <article class="ex-card" data-card="${i}">
+    <article class="ex-card${card.fromTarget ? ' from-target' : ''}" data-card="${i}">
       <header>
-        <h2>${esc(exerciseName(card.ex))}</h2>
+        <h2>${esc(exerciseName(card.ex))}${card.fromTarget ? ' <span class="badge">target</span>' : ''}</h2>
         <button class="icon-btn" data-act="del-card" title="Remove exercise" aria-label="Remove ${esc(exerciseName(card.ex))}">×</button>
       </header>
       <p class="meta">
@@ -322,9 +386,7 @@ function wire(root, ctx) {
       e.target.value = previous;
       return;
     }
-    const date = draft.date;
-    draft = buildDraft(day);
-    draft.date = date;
+    draft = buildDraft(day, draft.date);
     repaint();
   });
 
