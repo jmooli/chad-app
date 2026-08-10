@@ -78,8 +78,8 @@ export function validateReading(r, { types, sourceIds }) {
 /** Warnings do not block a save; they nudge toward analysable data. */
 export function warnReading(r, types) {
   const w = [];
-  if (r.type === 'bp' && !(r.tags || []).some((t) => t === 'morning' || t === 'evening')) {
-    w.push('Blood pressure without a morning/evening tag cannot be split in the clinical report.');
+  if (r.type === 'bp' && !(r.tags || []).some((t) => t === 'morning' || t === 'evening' || t === 'daytime')) {
+    w.push('Blood pressure without a morning/evening/daytime tag cannot be split in the clinical report.');
   }
   const type = types?.get(r.type);
   if (type && isNum(type.warn_above) && isNum(r.value) && r.value > type.warn_above) {
