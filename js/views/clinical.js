@@ -154,7 +154,15 @@ function blockHTML(typeId, readings) {
     <div class="report-block${folded ? ' collapsed' : ''}">
       ${head}
       <div class="fold-body">
-        ${chartSVG({ series, unit: t.unit, height: 260, refLines: typeId === 'bp' ? [{ y: 140, label: '140' }, { y: 90, label: '90' }] : [] })}
+        ${chartSVG({
+          series,
+          unit: t.unit,
+          height: 260,
+          refLines: typeId === 'bp' ? [{ y: 140, label: '140' }, { y: 90, label: '90' }] : [],
+          // Axis pinned to the chosen period: the report claims to cover these
+          // dates, so the chart must show them, sparse data or not.
+          xDomain: [Date.parse(view.from + 'T00:00:00'), Date.parse(view.to + 'T23:59:59')],
+        })}
         ${legendHTML(series)}
         ${summaryHTML(typeId, t, readings, comps)}
         ${tableHTML(t, readings, comps)}

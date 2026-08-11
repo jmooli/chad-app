@@ -74,8 +74,11 @@ function fmtTime(ms, span) {
  * bands: { points: [{x, y}], max, name } — a subordinate secondary series
  * drawn as translucent bars along the bottom (≤30% of plot height), so e.g.
  * diet adherence can be read against weight without competing with it.
+ * xDomain: [minMs, maxMs] — pin the x-axis to a selected date range instead of
+ * the data extent, so the chart answers "what happened in the period I chose",
+ * empty stretches included. Data outside the domain still widens it (never clip).
  */
-export function chartSVG({ series, width = 640, height = 240, unit = '', refLines = [], yZero = false, showPoints = true, bands = null }) {
+export function chartSVG({ series, width = 640, height = 240, unit = '', refLines = [], yZero = false, showPoints = true, bands = null, xDomain = null }) {
   const pts = series.flatMap((s) => s.points);
   if (!pts.length) {
     return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img" aria-label="No data">
@@ -91,8 +94,8 @@ export function chartSVG({ series, width = 640, height = 240, unit = '', refLine
   const yLo = Math.min(yTicks[0], yMin);
   const yHi = Math.max(yTicks[yTicks.length - 1], yMax);
 
-  const xMin = Math.min(...xs);
-  const xMax = Math.max(...xs);
+  const xMin = Math.min(...xs, ...(xDomain ? [xDomain[0]] : []));
+  const xMax = Math.max(...xs, ...(xDomain ? [xDomain[1]] : []));
   const span = Math.max(xMax - xMin, DAY);
 
   const plotW = width - PAD.left - PAD.right;

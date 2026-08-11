@@ -7,7 +7,7 @@
 
 import { state, loadYears, knownYears, allSessions, allReadings, exerciseName, dailyCountTypes } from '../store.js';
 import { chartSVG, legendHTML, SERIES_COLORS } from '../chart.js';
-import { aggregationFor, aggregate, summarize, estimated1RM, topSetKg, volume, distance, duration, pace, fmtPace, fmtNum, fmtDate } from '../stats.js';
+import { aggregationFor, aggregate, summarize, estimated1RM, rollingBest, topSetKg, volume, distance, duration, pace, fmtPace, fmtNum, fmtDate } from '../stats.js';
 import { esc } from '../ui.js';
 
 const RANGES = [
@@ -38,6 +38,21 @@ function rangeStart() {
   const r = RANGES.find((x) => x.key === view.range);
   if (!r.days) return 0;
   return Date.now() - r.days * 86400000;
+}
+
+/**
+ * Charts are pinned to the selected range, not the data extent — picking
+ * "4 weeks" must zoom the x-axis to those four weeks even if the only data
+ * sits in one of them. "All" keeps the data-driven axis.
+ */
+function xDomain() {
+  return view.range === 'all' ? null : [rangeStart(), Date.now()];
+}
+
+/** Aggregation follows the axis: what the chart spans decides the bucketing. */
+function spanOf(points) {
+  const d = xDomain();
+  return d ? d[1] - d[0] : points[points.length - 1].x - points[0].x;
 }
 
 function paint(root, ctx) {
@@ -127,19 +142,21 @@ function liftChartHTML(sessions, exId) {
     return repsOnly ? repChartHTML(sessions, exId) : '<p class="muted">No loaded sets for this exercise in range.</p>';
   }
 
-  const span = points[points.length - 1].x - points[0].x;
-  const mode = aggregationFor(span);
+  const mode = aggregationFor(spanOf(points));
+  // Rolling best, so light hypertrophy days do not read as strength loss.
+  const rolled = rollingBest(e1rm);
   const series = [
     { name: 'Top set (kg)', color: SERIES_COLORS[0], points: aggregate(points, mode) },
-    { name: 'Est. 1RM (kg)', color: SERIES_COLORS[1], points: aggregate(e1rm, mode), dashed: true },
+    { name: 'Est. 1RM, 4-wk best (kg)', color: SERIES_COLORS[1], points: aggregate(rolled, mode), dashed: true },
   ].filter((s) => s.points.length);
 
   const stats = summarize(points.map((p) => p.y));
+  const cur1rm = rolled.length ? rolled[rolled.length - 1].y : null;
   return `
     ${aggNote(mode, points.length)}
-    ${chartSVG({ series, unit: 'kg' })}
+    ${chartSVG({ series, unit: 'kg', xDomain: xDomain() })}
     ${legendHTML(series)}
-    <p class="stat-line">${points.length} session(s) · ${fmtNum(stats.first)} → ${fmtNum(stats.last)} kg · best ${fmtNum(stats.max)} kg</p>`;
+    <p class="stat-line">${points.length} session(s) · ${fmtNum(stats.first)} → ${fmtNum(stats.last)} kg · best ${fmtNum(stats.max)} kg${cur1rm !== null ? ` · est. 1RM ${fmtNum(cur1rm)} kg` : ''}</p>`;
 }
 
 /**
@@ -167,14 +184,14 @@ function cardioChartHTML(sessions, exId) {
 
   if (!points.length) return '<p class="muted">No distances recorded for this activity in range.</p>';
 
-  const mode = aggregationFor(points[points.length - 1].x - points[0].x);
+  const mode = aggregationFor(spanOf(points));
   const series = [{ name: 'Distance (km)', color: SERIES_COLORS[2], points: aggregate(points, mode) }];
   const best = paces.length ? Math.min(...paces) : null;
   const avg = paces.length ? paces.reduce((a, b) => a + b, 0) / paces.length : null;
 
   return `
     ${aggNote(mode, points.length)}
-    ${chartSVG({ series, unit: 'km', yZero: true })}
+    ${chartSVG({ series, unit: 'km', yZero: true, xDomain: xDomain() })}
     <p class="stat-line">
       ${points.length} outing(s) · ${fmtNum(totalKm, 1)} km total
       ${totalSecs ? ` · ${Math.round(totalSecs / 60)} min` : ''}
@@ -192,9 +209,9 @@ function repChartHTML(sessions, exId) {
     if (reps) points.push({ x: Date.parse(s.date + 'T12:00:00'), y: reps });
   }
   if (!points.length) return '<p class="muted">No data for this exercise in range.</p>';
-  const mode = aggregationFor(points[points.length - 1].x - points[0].x);
+  const mode = aggregationFor(spanOf(points));
   const series = [{ name: 'Total reps', color: SERIES_COLORS[2], points: aggregate(points, mode) }];
-  return `${aggNote(mode, points.length)}${chartSVG({ series, unit: 'reps', yZero: true })}`;
+  return `${aggNote(mode, points.length)}${chartSVG({ series, unit: 'reps', yZero: true, xDomain: xDomain() })}`;
 }
 
 function metricSections(readings) {
@@ -220,8 +237,7 @@ function metricSections(readings) {
           </article>`;
       }
 
-      const span = Date.parse(rs[rs.length - 1].ts) - Date.parse(rs[0].ts);
-      const mode = aggregationFor(span);
+      const mode = aggregationFor(spanOf(rs.map((r) => ({ x: Date.parse(r.ts) }))));
 
       const series = comps.map((c, i) => ({
         name: c ? `${t.name} ${c}` : t.name,
@@ -252,7 +268,7 @@ function metricSections(readings) {
         <article class="metric-block">
           <h3>${foldHead(typeId, `${esc(t.name)} <span class="unit">${esc(t.unit)}</span>`, '')}</h3>
           ${aggNote(mode, rs.length)}
-          ${chartSVG({ series, unit: t.unit, refLines: refLinesFor(typeId), bands })}
+          ${chartSVG({ series, unit: t.unit, refLines: refLinesFor(typeId), bands, xDomain: xDomain() })}
           ${legendHTML(series)}
           ${bands ? `<p class="agg-note">Grey bars: ${esc(bands.name)} (0–${esc(bands.max)})${mode === 'raw' ? '' : ', averaged like the line'}</p>` : ''}
           <p class="stat-line">${rs.length} reading(s) · latest ${esc(fmtNum(stats.last, t.decimals ?? 1))} ${esc(t.unit)} · mean ${esc(fmtNum(stats.mean, t.decimals ?? 1))}</p>

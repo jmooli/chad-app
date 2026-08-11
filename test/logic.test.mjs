@@ -28,7 +28,7 @@ globalThis.localStorage = { store: new Map(), getItem(k) { return this.store.get
 const { formatDataFile, orderSession, orderReading } = await import(`file://${APP}/js/format.js`);
 const { encodeBase64, decodeBase64 } = await import(`file://${APP}/js/github.js`);
 const { validateSession, validateReading, warnReading } = await import(`file://${APP}/js/schema.js`);
-const { aggregate, aggregationFor, summarize, partOfDay, estimated1RM, topSetKg, volume, distance, duration, pace, fmtPace } = await import(`file://${APP}/js/stats.js`);
+const { aggregate, aggregationFor, summarize, partOfDay, estimated1RM, rollingBest, topSetKg, volume, distance, duration, pace, fmtPace } = await import(`file://${APP}/js/stats.js`);
 const { chartSVG } = await import(`file://${APP}/js/chart.js`);
 
 console.log('\n1. Serializer matches the data repo byte-for-byte');
@@ -130,6 +130,21 @@ eq('volume ignores assistance', volume({ sets: [{ kg: -20, reps: 8 }] }), 0);
 eq('top set', topSetKg({ sets: [{ kg: 40, reps: 8 }, { kg: 50, reps: 3 }] }), 50);
 eq('top set of bodyweight is null', topSetKg({ sets: [{ reps: 8 }] }), null);
 eq('epley 1RM', estimated1RM({ sets: [{ kg: 100, reps: 5 }] }), 116.7);
+eq('high-rep sets do not feed epley', estimated1RM({ sets: [{ kg: 60, reps: 20 }, { kg: 100, reps: 5 }] }), 116.7);
+eq('only high-rep sets means no estimate', estimated1RM({ sets: [{ kg: 60, reps: 15 }] }), null);
+eq('ten reps still counts', estimated1RM({ sets: [{ kg: 80, reps: 10 }] }), 106.7);
+
+// Rolling best: a hypertrophy day must not read as a strength loss while a
+// heavier exposure is still inside the window.
+const rolled = rollingBest([
+  { x: day(1), y: 116.7 },  // strength day
+  { x: day(8), y: 106.7 },  // hypertrophy day
+  { x: day(15), y: 120 },   // new best
+], 28);
+eq('light day holds the windowed best', rolled.map((p) => p.y), [116.7, 116.7, 120]);
+const expired = rollingBest([{ x: day(1), y: 120 }, { x: day(31) + 86400000, y: 100 }], 28);
+eq('best expires with the window', expired[1].y, 100);
+eq('rolling best of empty is empty', rollingBest([]), []);
 
 console.log('\n7. Cardio');
 const run5k = { ex: 'run', sets: [{ km: 5, secs: 1920 }] };
@@ -166,6 +181,14 @@ const banded = chartSVG({
 });
 ok('adherence bands render as rects', (banded.match(/class="band"/g) || []).length === 3);
 ok('no NaN with bands', !/NaN/.test(banded));
+
+// A selected date range pins the axis even where no data exists.
+const domained = chartSVG({
+  series: [{ name: 'a', color: '#000', points: [{ x: day(5), y: 1 }, { x: day(10), y: 5 }] }],
+  xDomain: [day(1), Date.parse('2026-03-01T12:00:00Z')],
+});
+ok('x-axis starts at the domain, not the first point', domained.includes('>01.01.<'));
+ok('no NaN with a clamped domain', !/NaN/.test(domained));
 
 console.log('\n8. Service worker precache covers every module');
 const sw = readFileSync(join(APP, 'sw.js'), 'utf8');

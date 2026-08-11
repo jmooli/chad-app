@@ -107,15 +107,39 @@ export function topSetKg(exercise) {
   return w.length ? Math.max(...w) : null;
 }
 
+/**
+ * Epley loses touch with reality past ~10 reps, so high-rep hypertrophy sets
+ * are excluded rather than allowed to produce a confident-looking guess.
+ */
+export const EPLEY_MAX_REPS = 10;
+
 /** Epley estimate — comparable across rep ranges, useful for long-run trend. */
 export function estimated1RM(exercise) {
   let best = null;
   for (const s of exercise.sets || []) {
-    if (typeof s.kg !== 'number' || s.kg <= 0 || !s.reps) continue;
+    if (typeof s.kg !== 'number' || s.kg <= 0 || !s.reps || s.reps > EPLEY_MAX_REPS) continue;
     const e = s.kg * (1 + s.reps / 30);
     if (best === null || e > best) best = e;
   }
   return best === null ? null : Math.round(best * 10) / 10;
+}
+
+/**
+ * Best value in the trailing window, evaluated at each point's date.
+ *
+ * A lifter alternating hypertrophy and strength weights does not get weaker on
+ * the light days, so the 1RM trend must not dip every time the program calls
+ * for volume. The rolling best only declines when a heavy exposure ages out of
+ * the window without being matched — which is the honest signal.
+ */
+export function rollingBest(points, windowDays = 28) {
+  const win = windowDays * DAY;
+  const sorted = [...points].sort((a, b) => a.x - b.x);
+  return sorted.map((p, i) => {
+    let best = p.y;
+    for (let j = i - 1; j >= 0 && sorted[j].x > p.x - win; j--) if (sorted[j].y > best) best = sorted[j].y;
+    return { x: p.x, y: best };
+  });
 }
 
 export const fmtNum = (v, decimals = 1) =>
