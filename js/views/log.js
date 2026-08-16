@@ -150,7 +150,8 @@ function itemHTML(item, i) {
 const setSummary = (s) => {
   if (s.km !== undefined) {
     const time = s.secs ? ` in ${Math.round(s.secs / 60)} min` : '';
-    return `${s.km} km${time}${s.rpe ? ` @${s.rpe}` : ''}`;
+    const hr = s.hr_avg ? `, ♥ ${s.hr_avg}${s.hr_max ? `/${s.hr_max}` : ''}` : '';
+    return `${s.km} km${time}${hr}${s.rpe ? ` @${s.rpe}` : ''}`;
   }
   const load = typeof s.kg === 'number' ? `${s.kg}kg × ` : '';
   const amount = s.secs !== undefined ? `${s.secs}s` : `${s.reps}`;

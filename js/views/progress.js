@@ -220,19 +220,39 @@ function liftChartHTML(sessions, exId) {
 function cardioChartHTML(sessions, exId) {
   const points = [];
   const paces = [];
+  const eff = []; // beats per km, per outing — the conditioning trendline
   let totalKm = 0;
   let totalSecs = 0;
+  let hrBeats = 0; // hr_avg-weighted seconds, for a range-wide average HR
+  let hrSecs = 0;
 
   for (const s of sessions) {
     const e = s.exercises.find((x) => x.ex === exId);
     if (!e) continue;
     const km = distance(e);
     if (km === null) continue;
-    points.push({ x: Date.parse(s.date + 'T12:00:00'), y: km });
+    const x = Date.parse(s.date + 'T12:00:00');
+    points.push({ x, y: km });
     totalKm += km;
     totalSecs += duration(e);
     const p = pace(e);
     if (p !== null) paces.push(p);
+
+    // Cardiac cost of a kilometre: avg HR × minutes ÷ km, over the sets that
+    // carry the wearable's HR summary. Falling at a steady pace = fitter.
+    let beats = 0;
+    let effKm = 0;
+    for (const st of e.sets) {
+      if (st.hr_avg && st.secs) {
+        hrBeats += st.hr_avg * st.secs;
+        hrSecs += st.secs;
+        if (st.km) {
+          beats += st.hr_avg * (st.secs / 60);
+          effKm += st.km;
+        }
+      }
+    }
+    if (effKm > 0) eff.push({ x, y: Math.round(beats / effKm) });
   }
 
   if (!points.length) return '<p class="muted">No distances recorded for this activity in range.</p>';
@@ -245,6 +265,18 @@ function cardioChartHTML(sessions, exId) {
 
   chartSpecs.set('lift', { title: exerciseName(exId), unit: 'km', series: rawSeries, yZero: true, xDomain: xDomain() });
 
+  // The efficiency trend only earns its space once there is a trend to see.
+  let effHtml = '';
+  if (eff.length >= 2) {
+    const effRaw = [{ name: 'Beats per km', color: SERIES_COLORS[3], points: eff }];
+    const effSeries = effRaw.map((s) => ({ ...s, points: aggregate(s.points, mode) }));
+    chartSpecs.set('lift-eff', { title: `${exerciseName(exId)} — aerobic efficiency`, unit: 'beats/km', series: effRaw, xDomain: xDomain() });
+    effHtml = `
+      <h3>Aerobic efficiency <span class="unit">beats/km</span></h3>
+      <p class="agg-note">avg heart rate × minutes ÷ km — falling at the same pace means a fitter engine</p>
+      ${chartFig('lift-eff', chartSVG({ series: effSeries, unit: 'beats/km', xDomain: xDomain() }))}`;
+  }
+
   return `
     ${aggNote(mode, points.length)}
     ${chartFig('lift', chartSVG({ series, unit: 'km', yZero: true, xDomain: xDomain() }))}
@@ -252,7 +284,9 @@ function cardioChartHTML(sessions, exId) {
       ${points.length} outing(s) · ${fmtNum(totalKm, 1)} km total
       ${totalSecs ? ` · ${Math.round(totalSecs / 60)} min` : ''}
       ${avg !== null ? ` · average ${fmtPace(avg)}, best ${fmtPace(best)}` : ''}
-    </p>`;
+      ${hrSecs ? ` · avg ♥ ${Math.round(hrBeats / hrSecs)} bpm` : ''}
+    </p>
+    ${effHtml}`;
 }
 
 /** Bodyweight movements progress by reps, not load. */

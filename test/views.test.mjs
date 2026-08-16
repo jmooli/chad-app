@@ -523,8 +523,26 @@ await attempt('progress charts cardio by distance and reports pace', async () =>
 });
 ok('kilometres appear in the summary row', /km covered/.test(view.textContent));
 
+await attempt('imported HR shows in the log and drives the efficiency trend', async () => {
+  FILES[`logs/logs-${YEAR}.json`].sessions.push(
+    { date: daysAgo(6), day: 'X', exercises: [{ ex: 'run', sets: [{ km: 5, secs: 1800, hr_avg: 150, hr_max: 172 }] }], src: 'google-health', ext_id: 'act:hr1' },
+    { date: daysAgo(2), day: 'X', exercises: [{ ex: 'run', sets: [{ km: 5, secs: 1800, hr_avg: 142, hr_max: 165 }] }], src: 'google-health', ext_id: 'act:hr2' },
+  );
+  store.invalidate();
+  await log.default(view, ctx);
+  if (!/♥ 142\/165/.test(view.textContent)) throw new Error('HR not shown on the logged run');
+  await progress.default(view, ctx);
+  const sel = view.querySelector('#lift-select');
+  sel.value = 'run';
+  sel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const el = view.querySelector('#progress-body');
+  if (!/avg ♥ 146 bpm/.test(el.textContent)) throw new Error(`range-average HR missing: ${el.textContent.slice(0, 200)}`);
+  if (!/beats\/km/.test(el.textContent)) throw new Error('no aerobic efficiency trend');
+  if (/NaN/.test(el.innerHTML)) throw new Error('NaN with HR data');
+});
+
 await attempt('editing a cardio session reopens it in cardio mode', async () => {
-  const run = store.allSessions().find((s) => s.exercises.some((e) => e.ex === 'run'));
+  const run = store.allSessions().find((s) => s.src === undefined && s.exercises.some((e) => e.ex === 'run'));
   today.loadForEdit(run);
   await today.default(view, ctx);
   const card = view.querySelector('.ex-card');

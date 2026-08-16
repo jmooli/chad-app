@@ -361,13 +361,18 @@ function readForm(root) {
 
   root.querySelectorAll('.ex-card').forEach((cardEl) => {
     const card = draft.cards[Number(cardEl.dataset.card)];
-    card.sets = [...cardEl.querySelectorAll('.set')].map((setEl) => {
+    card.sets = [...cardEl.querySelectorAll('.set')].map((setEl, j) => {
+      // The wearable's HR summary has no input field — an edit must carry it
+      // through untouched rather than silently stripping it from the record.
+      const prev = card.sets[j] || {};
       const minutes = numOrUndef(setEl.querySelector('.min')?.value);
       return {
         kg: numOrUndef(setEl.querySelector('.kg')?.value),
         km: numOrUndef(setEl.querySelector('.km')?.value),
         reps: intOrUndef(setEl.querySelector('.reps')?.value),
         secs: minutes !== undefined ? Math.round(minutes * 60) : numOrUndef(setEl.querySelector('.secs')?.value),
+        hr_avg: prev.hr_avg,
+        hr_max: prev.hr_max,
         rpe: numOrUndef(setEl.querySelector('.rpe')?.value),
         to_failure: setEl.querySelector('.fail')?.checked || undefined,
       };
@@ -531,6 +536,8 @@ function toSession(d) {
           if (s.km !== undefined) out.km = s.km;
           if (s.reps !== undefined) out.reps = s.reps;
           if (s.secs !== undefined) out.secs = s.secs;
+          if (s.hr_avg !== undefined) out.hr_avg = s.hr_avg;
+          if (s.hr_max !== undefined) out.hr_max = s.hr_max;
           if (s.rpe !== undefined) out.rpe = s.rpe;
           if (s.to_failure) out.to_failure = true;
           return out;

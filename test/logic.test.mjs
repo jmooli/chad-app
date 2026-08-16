@@ -164,6 +164,11 @@ eq('distance alone is enough', validateSession({ date: '2026-08-04', day: 'X', e
 ok('zero distance rejected', validateSession({ date: '2026-08-04', day: 'X', exercises: [{ ex: 'run', sets: [{ km: 0 }] }] }, { exerciseIds: new Set(['run']) }).length > 0);
 ok('empty cardio set still rejected', validateSession({ date: '2026-08-04', day: 'X', exercises: [{ ex: 'run', sets: [{ rpe: 5 }] }] }, { exerciseIds: new Set(['run']) }).length > 0);
 eq('km is ordered next to kg', Object.keys(orderSession({ date: 'd', day: 'X', exercises: [{ ex: 'run', sets: [{ secs: 1920, km: 5 }] }] }).exercises[0].sets[0]), ['km', 'secs']);
+eq('hr summary is ordered after time', Object.keys(orderSession({ date: 'd', day: 'X', exercises: [{ ex: 'run', sets: [{ hr_max: 167, hr_avg: 142, secs: 1920, km: 5 }] }] }).exercises[0].sets[0]), ['km', 'secs', 'hr_avg', 'hr_max']);
+eq('valid hr summary passes', validateSession({ date: '2026-08-04', day: 'X', exercises: [{ ex: 'run', sets: [{ km: 5, secs: 1800, hr_avg: 142, hr_max: 167 }] }] }, { exerciseIds: new Set(['run']) }).length, 0);
+ok('fractional hr rejected', validateSession({ date: '2026-08-04', day: 'X', exercises: [{ ex: 'run', sets: [{ km: 5, secs: 1800, hr_avg: 142.6 }] }] }, { exerciseIds: new Set(['run']) }).length > 0);
+ok('implausible hr rejected', validateSession({ date: '2026-08-04', day: 'X', exercises: [{ ex: 'run', sets: [{ km: 5, secs: 1800, hr_max: 260 }] }] }, { exerciseIds: new Set(['run']) }).length > 0);
+ok('hr_avg above hr_max rejected', validateSession({ date: '2026-08-04', day: 'X', exercises: [{ ex: 'run', sets: [{ km: 5, secs: 1800, hr_avg: 180, hr_max: 150 }] }] }, { exerciseIds: new Set(['run']) }).length > 0);
 ok('a cardio session serialises to one line', formatDataFile({ schema_version: 2, sessions: [{ date: '2026-08-04', day: 'X', exercises: [intervals] }] }).split('\n').filter((l) => l.includes('"km"')).length === 1);
 
 console.log('\n8. Chart output');

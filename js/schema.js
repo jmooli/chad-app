@@ -38,6 +38,10 @@ export function validateSession(s, { exerciseIds, sourceIds }) {
       if (st.secs !== undefined && (!isNum(st.secs) || st.secs <= 0)) e.push(`${at}: time must be positive.`);
       if (st.km !== undefined && (!isNum(st.km) || st.km <= 0)) e.push(`${at}: distance must be positive.`);
       if (st.kg !== undefined && !isNum(st.kg)) e.push(`${at}: weight must be a number.`);
+      for (const k of ['hr_avg', 'hr_max']) {
+        if (st[k] !== undefined && (!isInt(st[k]) || st[k] < 30 || st[k] > 230)) e.push(`${at}: ${k === 'hr_avg' ? 'average' : 'max'} heart rate must be 30–230 whole bpm.`);
+      }
+      if (isInt(st.hr_avg) && isInt(st.hr_max) && st.hr_avg > st.hr_max) e.push(`${at}: average heart rate exceeds the max.`);
       if (st.rpe !== undefined && (!isNum(st.rpe) || st.rpe < 1 || st.rpe > 10)) e.push(`${at}: RPE must be 1–10.`);
     });
   });
