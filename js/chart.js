@@ -7,7 +7,7 @@
  * first-class feature here (the clinical report).
  */
 
-const PAD = { top: 14, right: 14, bottom: 28, left: 46 };
+export const PAD = { top: 14, right: 14, bottom: 28, left: 46 };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -77,8 +77,14 @@ function fmtTime(ms, span) {
  * xDomain: [minMs, maxMs] — pin the x-axis to a selected date range instead of
  * the data extent, so the chart answers "what happened in the period I chose",
  * empty stretches included. Data outside the domain still widens it (never clip).
+ * clip: with xDomain, the domain is taken exactly and marks outside it are
+ * clipped instead of widening the axis. This is what makes the full-screen
+ * viewer's pan/zoom work: neighbouring points slide in under the edges rather
+ * than snapping the axis about.
  */
-export function chartSVG({ series, width = 640, height = 240, unit = '', refLines = [], yZero = false, showPoints = true, bands = null, xDomain = null }) {
+let clipSeq = 0;
+
+export function chartSVG({ series, width = 640, height = 240, unit = '', refLines = [], yZero = false, showPoints = true, bands = null, xDomain = null, clip = false }) {
   const pts = series.flatMap((s) => s.points);
   if (!pts.length) {
     return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img" aria-label="No data">
@@ -94,8 +100,9 @@ export function chartSVG({ series, width = 640, height = 240, unit = '', refLine
   const yLo = Math.min(yTicks[0], yMin);
   const yHi = Math.max(yTicks[yTicks.length - 1], yMax);
 
-  const xMin = Math.min(...xs, ...(xDomain ? [xDomain[0]] : []));
-  const xMax = Math.max(...xs, ...(xDomain ? [xDomain[1]] : []));
+  let xMin = Math.min(...xs, ...(xDomain ? [xDomain[0]] : []));
+  let xMax = Math.max(...xs, ...(xDomain ? [xDomain[1]] : []));
+  if (clip && xDomain) [xMin, xMax] = xDomain;
   const span = Math.max(xMax - xMin, DAY);
 
   const plotW = width - PAD.left - PAD.right;
@@ -103,8 +110,10 @@ export function chartSVG({ series, width = 640, height = 240, unit = '', refLine
   const sx = (x) => PAD.left + (xMax === xMin ? plotW / 2 : ((x - xMin) / (xMax - xMin)) * plotW);
   const sy = (y) => PAD.top + plotH - ((y - yLo) / (yHi - yLo || 1)) * plotH;
 
+  const clipId = clip && xDomain ? `chart-clip-${++clipSeq}` : null;
   const parts = [];
   parts.push(`<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" class="chart" role="img">`);
+  if (clipId) parts.push(`<defs><clipPath id="${clipId}"><rect x="${PAD.left}" y="0" width="${plotW.toFixed(1)}" height="${height}"/></clipPath></defs>`);
 
   for (const t of yTicks) {
     const y = sy(t).toFixed(1);
@@ -117,6 +126,14 @@ export function chartSVG({ series, width = 640, height = 240, unit = '', refLine
     parts.push(`<text class="tick" x="${x}" y="${height - 8}" text-anchor="middle">${esc(fmtTime(t, span))}</text>`);
   }
 
+  for (const r of refLines) {
+    const y = sy(r.y).toFixed(1);
+    parts.push(`<line class="refline" style="stroke:${esc(r.color || '#c0392b')}" x1="${PAD.left}" y1="${y}" x2="${width - PAD.right}" y2="${y}"/>`);
+    if (r.label) parts.push(`<text class="reflabel" style="fill:${esc(r.color || '#c0392b')}" x="${width - PAD.right}" y="${y - 4}" text-anchor="end">${esc(r.label)}</text>`);
+  }
+
+  if (clipId) parts.push(`<g clip-path="url(#${clipId})">`);
+
   if (bands?.points?.length) {
     const bMax = bands.max || Math.max(...bands.points.map((p) => p.y), 1);
     const bw = Math.min(14, Math.max(3, (plotW / Math.max(bands.points.length, 1)) * 0.55));
@@ -126,12 +143,6 @@ export function chartSVG({ series, width = 640, height = 240, unit = '', refLine
       const bx = sx(p.x) - bw / 2;
       parts.push(`<rect class="band" x="${bx.toFixed(1)}" y="${(PAD.top + plotH - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}"><title>${esc(fmtTime(p.x, span))} — ${esc(Math.round(p.y * 10) / 10)} ${esc(bands.name || '')}</title></rect>`);
     }
-  }
-
-  for (const r of refLines) {
-    const y = sy(r.y).toFixed(1);
-    parts.push(`<line class="refline" style="stroke:${esc(r.color || '#c0392b')}" x1="${PAD.left}" y1="${y}" x2="${width - PAD.right}" y2="${y}"/>`);
-    if (r.label) parts.push(`<text class="reflabel" style="fill:${esc(r.color || '#c0392b')}" x="${width - PAD.right}" y="${y - 4}" text-anchor="end">${esc(r.label)}</text>`);
   }
 
   series.forEach((s) => {
@@ -145,6 +156,8 @@ export function chartSVG({ series, width = 640, height = 240, unit = '', refLine
       }
     }
   });
+
+  if (clipId) parts.push('</g>');
 
   parts.push(`<line class="axis" x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${height - PAD.bottom}"/>`);
   parts.push(`<line class="axis" x1="${PAD.left}" y1="${height - PAD.bottom}" x2="${width - PAD.right}" y2="${height - PAD.bottom}"/>`);

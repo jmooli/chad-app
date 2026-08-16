@@ -318,6 +318,55 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .segmented button { border: 0; background: var(--surface); color: var(--muted); padding: .45rem .7rem; font: inherit; font-size: .85rem; cursor: pointer; }
 .segmented button.on { background: var(--accent); color: var(--accent-ink); }
 
+/* Time-range slider: full width, gym-thumb sized. */
+.range-label { color: var(--muted); font-size: .9rem; font-variant-numeric: tabular-nums; }
+.range-slider {
+  width: 100%;
+  height: var(--tap);
+  margin: 0 0 .3rem;
+  accent-color: var(--accent);
+  touch-action: pan-y;
+}
+
+/* Inline chart with its expand button. */
+.chart-wrap { position: relative; }
+.chart-zoom {
+  position: absolute; top: 2px; right: 0;
+  width: 34px; height: 34px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); color: var(--muted);
+  font: inherit; font-size: 1rem; line-height: 1; cursor: pointer;
+  opacity: .85;
+}
+.chart-zoom:active { background: var(--surface-2); }
+
+/* Full-screen chart viewer. */
+body.chartview-open { overflow: hidden; }
+.chartview {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.chartview-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .5rem .8rem; }
+.chartview-head h2 { margin: 0; font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chartview-close {
+  flex: none; width: var(--tap); height: var(--tap);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); color: var(--text);
+  font: inherit; font-size: 1.1rem; cursor: pointer;
+}
+.chartview-stage {
+  flex: 1; min-height: 0; margin: 0 .4rem;
+  touch-action: none; overscroll-behavior: contain;
+  cursor: grab; user-select: none; -webkit-user-select: none;
+}
+.chartview-stage svg { width: 100%; height: 100%; }
+.chartview-foot { padding: .3rem .8rem calc(.5rem + env(safe-area-inset-bottom)); }
+.chartview-foot .legend { margin: .15rem 0; }
+.chartview-range { margin: 0; color: var(--text); font-size: .9rem; font-variant-numeric: tabular-nums; }
+.chartview-hint { margin: .15rem 0 0; color: var(--muted); font-size: .78rem; }
+
 .summary-row { display: flex; gap: .5rem; margin: .8rem 0; }
 .stat { flex: 1; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: .5rem .4rem; text-align: center; box-shadow: var(--shadow); }
 .stat-n { display: block; font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -394,7 +443,7 @@ body.locked .unlock-hint { display: block; color: var(--muted); font-size: .8rem
 @media print {
   :root { --bg: #fff; --surface: #fff; --surface-2: #fff; --text: #000; --muted: #444; --line: #bbb; color-scheme: light; }
   body { background: #fff; color: #000; font-size: 12pt; }
-  .no-print, #header, #toasts, .clinical-controls { display: none !important; }
+  .no-print, #header, #toasts, .clinical-controls, .chartview, .chart-zoom, .range-slider { display: none !important; }
 
   /* The report prints complete regardless of what is folded on screen. */
   .report-block .fold-body { display: block !important; }

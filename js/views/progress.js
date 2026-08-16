@@ -3,21 +3,49 @@
  *
  * Short ranges show every reading; long ranges switch to weekly or monthly
  * means, so a decade of data stays a readable line rather than a smear.
+ *
+ * The range is a slider, not preset buttons: drag it and every chart follows
+ * live. Each chart also opens full-screen (⤢) for pinch-zoom and panning.
  */
 
 import { state, loadYears, knownYears, allSessions, allReadings, exerciseName, dailyCountTypes } from '../store.js';
 import { chartSVG, legendHTML, SERIES_COLORS } from '../chart.js';
+import { openChartView } from '../chartview.js';
 import { aggregationFor, aggregate, summarize, estimated1RM, rollingBest, topSetKg, volume, distance, duration, pace, fmtPace, fmtNum, fmtDate } from '../stats.js';
 import { esc } from '../ui.js';
 
-const RANGES = [
-  { key: '4w', label: '4 weeks', days: 28 },
-  { key: '3m', label: '3 months', days: 92 },
-  { key: '1y', label: '1 year', days: 365 },
-  { key: 'all', label: 'All', days: null },
+/**
+ * Slider stops. Discrete named spans rather than a continuous scale: "3 months"
+ * is a statement you can reason about, "97 days" is not, and snapping keeps the
+ * aggregation level stable while dragging.
+ */
+const STOPS = [
+  { days: 7, label: '1 week' },
+  { days: 14, label: '2 weeks' },
+  { days: 28, label: '4 weeks' },
+  { days: 42, label: '6 weeks' },
+  { days: 61, label: '2 months' },
+  { days: 92, label: '3 months' },
+  { days: 122, label: '4 months' },
+  { days: 183, label: '6 months' },
+  { days: 274, label: '9 months' },
+  { days: 365, label: '1 year' },
+  { days: 548, label: '18 months' },
+  { days: 730, label: '2 years' },
+  { days: 1095, label: '3 years' },
+  { days: 1826, label: '5 years' },
+  { days: null, label: 'All' },
 ];
 
-const view = { range: '3m', exercise: null, folded: new Set() };
+const view = { rangeIdx: STOPS.findIndex((s) => s.days === 92), exercise: null, folded: new Set() };
+
+const rangeLabel = () => {
+  const s = STOPS[view.rangeIdx];
+  return s.days ? `Last ${s.label.toLowerCase()}` : 'All data';
+};
+
+/** Specs for the full-screen viewer, rebuilt on every body paint. */
+const chartSpecs = new Map();
 
 /** A folded chart is not rendered at all — the bar alone is enough to glance past it. */
 const foldHead = (key, label, summary) => {
@@ -28,6 +56,10 @@ const foldHead = (key, label, summary) => {
   </button>`;
 };
 
+/** Chart plus its expand-to-full-screen button. */
+const chartFig = (key, svg) =>
+  `<div class="chart-wrap">${svg}<button type="button" class="chart-zoom" data-zoom="${esc(key)}" aria-label="Open chart full screen">⤢</button></div>`;
+
 export default async function renderProgress(root, ctx) {
   const years = await knownYears();
   await loadYears(years[0], years[years.length - 1]);
@@ -35,9 +67,8 @@ export default async function renderProgress(root, ctx) {
 }
 
 function rangeStart() {
-  const r = RANGES.find((x) => x.key === view.range);
-  if (!r.days) return 0;
-  return Date.now() - r.days * 86400000;
+  const d = STOPS[view.rangeIdx].days;
+  return d ? Date.now() - d * 86400000 : 0;
 }
 
 /**
@@ -46,7 +77,7 @@ function rangeStart() {
  * sits in one of them. "All" keeps the data-driven axis.
  */
 function xDomain() {
-  return view.range === 'all' ? null : [rangeStart(), Date.now()];
+  return STOPS[view.rangeIdx].days ? [rangeStart(), Date.now()] : null;
 }
 
 /** Aggregation follows the axis: what the chart spans decides the bucketing. */
@@ -56,6 +87,35 @@ function spanOf(points) {
 }
 
 function paint(root, ctx) {
+  root.innerHTML = `
+    <section class="progress">
+      <div class="head-row">
+        <h1>Progress</h1>
+        <span class="range-label">${esc(rangeLabel())}</span>
+      </div>
+      <input type="range" class="range-slider" id="range-slider" min="0" max="${STOPS.length - 1}" step="1"
+        value="${view.rangeIdx}" aria-label="Date range" aria-valuetext="${esc(rangeLabel())}">
+      <div id="progress-body"></div>
+    </section>`;
+
+  paintBody(root, ctx);
+
+  // Live scrub: the slider sits outside the repainted body, so dragging is
+  // never interrupted by its own re-render.
+  const slider = root.querySelector('#range-slider');
+  let queued = false;
+  slider.addEventListener('input', () => {
+    view.rangeIdx = Number(slider.value);
+    slider.setAttribute('aria-valuetext', rangeLabel());
+    root.querySelector('.range-label').textContent = rangeLabel();
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; paintBody(root, ctx); });
+  });
+}
+
+function paintBody(root, ctx) {
+  const body = root.querySelector('#progress-body');
   const from = rangeStart();
   const sessions = allSessions().filter((s) => Date.parse(s.date + 'T12:00:00') >= from);
   const readings = allReadings().filter((r) => Date.parse(r.ts) >= from);
@@ -64,15 +124,9 @@ function paint(root, ctx) {
   if (!view.exercise || !lifts.includes(view.exercise)) view.exercise = lifts[0] || null;
   const totalKm = sessions.reduce((a, s) => a + s.exercises.reduce((b, e) => b + (distance(e) || 0), 0), 0);
 
-  root.innerHTML = `
-    <section class="progress">
-      <div class="head-row">
-        <h1>Progress</h1>
-        <div class="segmented" role="group" aria-label="Date range">
-          ${RANGES.map((r) => `<button class="${r.key === view.range ? 'on' : ''}" data-range="${r.key}">${esc(r.label)}</button>`).join('')}
-        </div>
-      </div>
+  chartSpecs.clear();
 
+  body.innerHTML = `
       <div class="summary-row">
         <div class="stat"><span class="stat-n">${sessions.length}</span><span class="stat-l">sessions</span></div>
         <div class="stat"><span class="stat-n">${fmtNum(sessions.reduce((a, s) => a + s.exercises.reduce((b, e) => b + volume(e), 0), 0) / 1000, 1)}</span><span class="stat-l">tonnes lifted</span></div>
@@ -90,29 +144,25 @@ function paint(root, ctx) {
           : '<p class="muted">No sessions logged in this range.</p>'}
 
       <h2 class="section-head">Health metrics</h2>
-      ${metricSections(readings) || '<p class="muted">No readings in this range.</p>'}
-    </section>`;
+      ${metricSections(readings) || '<p class="muted">No readings in this range.</p>'}`;
 
-  root.querySelectorAll('[data-range]').forEach((b) =>
-    b.addEventListener('click', () => {
-      view.range = b.dataset.range;
-      paint(root, ctx);
-    }),
-  );
-  root.querySelectorAll('[data-fold]').forEach((b) =>
+  body.querySelectorAll('[data-fold]').forEach((b) =>
     b.addEventListener('click', () => {
       const key = b.dataset.fold;
       if (!view.folded.delete(key)) view.folded.add(key);
-      paint(root, ctx);
+      paintBody(root, ctx);
     }),
   );
-  root.querySelector('#lift-select')?.addEventListener('change', (e) => {
+  body.querySelector('#lift-select')?.addEventListener('change', (e) => {
     view.exercise = e.target.value;
-    root.querySelector('#lift-chart').innerHTML = liftChartHTML(
-      allSessions().filter((s) => Date.parse(s.date + 'T12:00:00') >= rangeStart()),
-      view.exercise,
-    );
+    paintBody(root, ctx);
   });
+  body.querySelectorAll('[data-zoom]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const spec = chartSpecs.get(b.dataset.zoom);
+      if (spec) openChartView(spec);
+    }),
+  );
 }
 
 /** Exercises with at least one loaded set, most recently trained first. */
@@ -145,16 +195,19 @@ function liftChartHTML(sessions, exId) {
   const mode = aggregationFor(spanOf(points));
   // Rolling best, so light hypertrophy days do not read as strength loss.
   const rolled = rollingBest(e1rm);
-  const series = [
-    { name: 'Top set (kg)', color: SERIES_COLORS[0], points: aggregate(points, mode) },
-    { name: 'Est. 1RM, 4-wk best (kg)', color: SERIES_COLORS[1], points: aggregate(rolled, mode), dashed: true },
+  const rawSeries = [
+    { name: 'Top set (kg)', color: SERIES_COLORS[0], points },
+    { name: 'Est. 1RM, 4-wk best (kg)', color: SERIES_COLORS[1], points: rolled, dashed: true },
   ].filter((s) => s.points.length);
+  const series = rawSeries.map((s) => ({ ...s, points: aggregate(s.points, mode) }));
+
+  chartSpecs.set('lift', { title: exerciseName(exId), unit: 'kg', series: rawSeries, xDomain: xDomain() });
 
   const stats = summarize(points.map((p) => p.y));
   const cur1rm = rolled.length ? rolled[rolled.length - 1].y : null;
   return `
     ${aggNote(mode, points.length)}
-    ${chartSVG({ series, unit: 'kg', xDomain: xDomain() })}
+    ${chartFig('lift', chartSVG({ series, unit: 'kg', xDomain: xDomain() }))}
     ${legendHTML(series)}
     <p class="stat-line">${points.length} session(s) · ${fmtNum(stats.first)} → ${fmtNum(stats.last)} kg · best ${fmtNum(stats.max)} kg${cur1rm !== null ? ` · est. 1RM ${fmtNum(cur1rm)} kg` : ''}</p>`;
 }
@@ -185,13 +238,16 @@ function cardioChartHTML(sessions, exId) {
   if (!points.length) return '<p class="muted">No distances recorded for this activity in range.</p>';
 
   const mode = aggregationFor(spanOf(points));
-  const series = [{ name: 'Distance (km)', color: SERIES_COLORS[2], points: aggregate(points, mode) }];
+  const rawSeries = [{ name: 'Distance (km)', color: SERIES_COLORS[2], points }];
+  const series = rawSeries.map((s) => ({ ...s, points: aggregate(s.points, mode) }));
   const best = paces.length ? Math.min(...paces) : null;
   const avg = paces.length ? paces.reduce((a, b) => a + b, 0) / paces.length : null;
 
+  chartSpecs.set('lift', { title: exerciseName(exId), unit: 'km', series: rawSeries, yZero: true, xDomain: xDomain() });
+
   return `
     ${aggNote(mode, points.length)}
-    ${chartSVG({ series, unit: 'km', yZero: true, xDomain: xDomain() })}
+    ${chartFig('lift', chartSVG({ series, unit: 'km', yZero: true, xDomain: xDomain() }))}
     <p class="stat-line">
       ${points.length} outing(s) · ${fmtNum(totalKm, 1)} km total
       ${totalSecs ? ` · ${Math.round(totalSecs / 60)} min` : ''}
@@ -210,8 +266,10 @@ function repChartHTML(sessions, exId) {
   }
   if (!points.length) return '<p class="muted">No data for this exercise in range.</p>';
   const mode = aggregationFor(spanOf(points));
-  const series = [{ name: 'Total reps', color: SERIES_COLORS[2], points: aggregate(points, mode) }];
-  return `${aggNote(mode, points.length)}${chartSVG({ series, unit: 'reps', yZero: true, xDomain: xDomain() })}`;
+  const rawSeries = [{ name: 'Total reps', color: SERIES_COLORS[2], points }];
+  const series = rawSeries.map((s) => ({ ...s, points: aggregate(s.points, mode) }));
+  chartSpecs.set('lift', { title: exerciseName(exId), unit: 'reps', series: rawSeries, yZero: true, xDomain: xDomain() });
+  return `${aggNote(mode, points.length)}${chartFig('lift', chartSVG({ series, unit: 'reps', yZero: true, xDomain: xDomain() }))}`;
 }
 
 function metricSections(readings) {
@@ -239,14 +297,12 @@ function metricSections(readings) {
 
       const mode = aggregationFor(spanOf(rs.map((r) => ({ x: Date.parse(r.ts) }))));
 
-      const series = comps.map((c, i) => ({
+      const rawSeries = comps.map((c, i) => ({
         name: c ? `${t.name} ${c}` : t.name,
         color: SERIES_COLORS[i % SERIES_COLORS.length],
-        points: aggregate(
-          rs.map((r) => ({ x: Date.parse(r.ts), y: c ? r.value[c] : r.value })).filter((p) => Number.isFinite(p.y)),
-          mode,
-        ),
+        points: rs.map((r) => ({ x: Date.parse(r.ts), y: c ? r.value[c] : r.value })).filter((p) => Number.isFinite(p.y)),
       })).filter((s) => s.points.length);
+      const series = rawSeries.map((s) => ({ ...s, points: aggregate(s.points, mode) }));
 
       if (!series.length) return '';
       const stats = summarize(series[0].points.map((p) => p.y));
@@ -254,21 +310,31 @@ function metricSections(readings) {
       // Diet adherence as quiet background bars behind weight and BP — the
       // question these charts answer is what bowl adherence did to outcomes.
       let bands = null;
+      let rawBands = null;
       if (typeId === 'weight' || typeId === 'bp') {
         for (const ct of dailyCountTypes()) {
           const crs = byType.get(ct.id);
           if (!crs?.length) continue;
-          const points = aggregate(crs.map((r) => ({ x: Date.parse(r.ts), y: r.value })).filter((p) => Number.isFinite(p.y)), mode);
-          if (points.length) bands = { points, max: ct.max ?? 6, name: `${ct.unit}/day` };
+          const rawPoints = crs.map((r) => ({ x: Date.parse(r.ts), y: r.value })).filter((p) => Number.isFinite(p.y));
+          const points = aggregate(rawPoints, mode);
+          if (points.length) {
+            bands = { points, max: ct.max ?? 6, name: `${ct.unit}/day` };
+            rawBands = { points: rawPoints, max: ct.max ?? 6, name: `${ct.unit}/day` };
+          }
           break;
         }
       }
+
+      chartSpecs.set(typeId, {
+        title: t.name, unit: t.unit, series: rawSeries,
+        refLines: refLinesFor(typeId), bands: rawBands, xDomain: xDomain(),
+      });
 
       return `
         <article class="metric-block">
           <h3>${foldHead(typeId, `${esc(t.name)} <span class="unit">${esc(t.unit)}</span>`, '')}</h3>
           ${aggNote(mode, rs.length)}
-          ${chartSVG({ series, unit: t.unit, refLines: refLinesFor(typeId), bands, xDomain: xDomain() })}
+          ${chartFig(typeId, chartSVG({ series, unit: t.unit, refLines: refLinesFor(typeId), bands, xDomain: xDomain() }))}
           ${legendHTML(series)}
           ${bands ? `<p class="agg-note">Grey bars: ${esc(bands.name)} (0–${esc(bands.max)})${mode === 'raw' ? '' : ', averaged like the line'}</p>` : ''}
           <p class="stat-line">${rs.length} reading(s) · latest ${esc(fmtNum(stats.last, t.decimals ?? 1))} ${esc(t.unit)} · mean ${esc(fmtNum(stats.mean, t.decimals ?? 1))}</p>

@@ -312,9 +312,23 @@ await attempt('progress renders', async () => {
 });
 ok('renders a chart per metric type', view.querySelectorAll('.metric-block').length === 2);
 ok('no NaN in any chart', !/NaN/.test(view.innerHTML));
-await attempt('range presets re-render', async () => {
-  view.querySelector('[data-range="all"]').dispatchEvent(new window.Event('click', { bubbles: true }));
-  if (!view.querySelector('[data-range="all"]').classList.contains('on')) throw new Error('range not applied');
+await attempt('range slider re-renders live', async () => {
+  const slider = view.querySelector('#range-slider');
+  if (!slider) throw new Error('no range slider');
+  slider.value = slider.max; // drag to "All"
+  slider.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20)); // repaint is rAF-throttled (shimmed to setTimeout)
+  if (!/All data/.test(view.querySelector('.range-label').textContent)) throw new Error('label not updated');
+  if (!view.querySelector('#progress-body svg')) throw new Error('charts did not re-render');
+});
+await attempt('chart expands to a full-screen viewer and closes again', async () => {
+  view.querySelector('[data-zoom]').dispatchEvent(new window.Event('click', { bubbles: true }));
+  const overlay = window.document.querySelector('.chartview');
+  if (!overlay) throw new Error('viewer did not open');
+  if (!overlay.querySelector('svg')) throw new Error('viewer has no chart');
+  if (!/–/.test(overlay.querySelector('.chartview-range').textContent)) throw new Error('no visible date range');
+  overlay.querySelector('.chartview-close').dispatchEvent(new window.Event('click', { bubbles: true }));
+  if (window.document.querySelector('.chartview')) throw new Error('viewer did not close');
 });
 await attempt('a metric chart folds to a bar with the latest value', async () => {
   const btn = view.querySelector('.metric-block [data-fold]');

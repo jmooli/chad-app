@@ -6,7 +6,7 @@
  * stale reading because the network was slow.
  */
 
-const VERSION = 'chad-shell-v3';
+const VERSION = 'chad-shell-v4';
 
 const SHELL = [
   './',
@@ -21,6 +21,7 @@ const SHELL = [
   './js/store.js',
   './js/stats.js',
   './js/chart.js',
+  './js/chartview.js',
   './js/ui.js',
   './js/views/setup.js',
   './js/views/today.js',

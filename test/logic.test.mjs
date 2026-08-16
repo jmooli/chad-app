@@ -190,6 +190,16 @@ const domained = chartSVG({
 ok('x-axis starts at the domain, not the first point', domained.includes('>01.01.<'));
 ok('no NaN with a clamped domain', !/NaN/.test(domained));
 
+// clip mode (the full-screen viewer): domain taken exactly, marks clipped.
+const clipped = chartSVG({
+  series: [{ name: 'a', color: '#000', points: [{ x: day(1), y: 1 }, { x: day(5), y: 2 }, { x: day(20), y: 5 }] }],
+  xDomain: [day(4), day(10)],
+  clip: true,
+});
+ok('clip mode declares a clipPath', clipped.includes('<clipPath') && clipped.includes('clip-path="url(#'));
+ok('clip mode pins the axis to the window, not the data', !clipped.includes('>01.01.<'));
+ok('no NaN in clip mode', !/NaN/.test(clipped));
+
 console.log('\n8. Service worker precache covers every module');
 const sw = readFileSync(join(APP, 'sw.js'), 'utf8');
 const walk = (dir, out = []) => {
